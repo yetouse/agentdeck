@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Real-time web cockpit for AI coding agents" />
+    <title>AgentDeck</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="topbar__brand">
+          <svg class="topbar__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="6" height="6" rx="1" fill="#6b7ef8"/>
+            <rect x="9" y="1" width="6" height="6" rx="1" fill="#34d399"/>
+            <rect x="1" y="9" width="6" height="6" rx="1" fill="#fbbf24"/>
+            <rect x="9" y="9" width="6" height="6" rx="1" fill="#6b7ef8" opacity="0.4"/>
+          </svg>
+          <span class="topbar__name">AgentDeck</span>
+          <span class="topbar__version">v0.1</span>
+        </div>
+        <div id="status-bar" class="topbar__statusbar"></div>
+      </header>
+
+      <main class="cockpit">
+        <section class="cockpit__panel" id="panel-agents">
+          <div class="panel__header">
+            <h2 class="panel__title">Agents</h2>
+            <span id="agent-count" class="panel__badge">0</span>
+          </div>
+          <div id="agent-grid" class="agent-grid"></div>
+        </section>
+
+        <section class="cockpit__panel" id="panel-logs">
+          <div class="panel__header">
+            <h2 class="panel__title">Live Logs</h2>
+            <select id="log-filter" class="panel__select">
+              <option value="all">All agents</option>
+            </select>
+          </div>
+          <div id="log-feed" class="log-feed" role="log" aria-live="polite" aria-label="Agent log output"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

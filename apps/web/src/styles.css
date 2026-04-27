@@ -1,0 +1,113 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #070b18;
+  color: #e5eefb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(107, 126, 248, 0.24), transparent 32rem),
+    radial-gradient(circle at bottom right, rgba(52, 211, 153, 0.16), transparent 28rem),
+    #070b18;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(7, 11, 24, 0.78);
+  backdrop-filter: blur(14px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar__brand, .topbar__statusbar { display: flex; align-items: center; gap: 0.75rem; }
+.topbar__icon { width: 1.75rem; height: 1.75rem; }
+.topbar__name { font-weight: 800; letter-spacing: -0.03em; font-size: 1.15rem; }
+.topbar__version { color: #94a3b8; font-size: 0.85rem; }
+.topbar__statusbar span { color: #94a3b8; font-size: 0.9rem; }
+.topbar__statusbar strong { color: #f8fafc; }
+
+.cockpit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(22rem, 0.9fr);
+  gap: 1rem;
+  padding: 1rem;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.cockpit__panel {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 1rem;
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+.panel__title { margin: 0; font-size: 1rem; }
+.panel__badge, .panel__select {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #cbd5e1;
+  padding: 0.35rem 0.65rem;
+}
+
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; padding: 1rem; }
+.agent-card {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.9rem;
+  padding: 1rem;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.82));
+}
+.agent-card--running { outline: 1px solid rgba(52, 211, 153, 0.32); }
+.agent-card--waiting { outline: 1px solid rgba(251, 191, 36, 0.28); }
+.agent-card--done { opacity: 0.86; }
+.agent-card__header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.agent-card h3 { margin: 0; }
+.agent-card__task { color: #cbd5e1; min-height: 3rem; }
+.status { border-radius: 999px; padding: 0.25rem 0.55rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.status--running { background: rgba(52, 211, 153, 0.16); color: #86efac; }
+.status--waiting { background: rgba(251, 191, 36, 0.16); color: #fde68a; }
+.status--done { background: rgba(107, 126, 248, 0.16); color: #c4b5fd; }
+.status--idle { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+.status--error { background: rgba(248, 113, 113, 0.16); color: #fecaca; }
+
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 1rem 0; }
+.metrics div { background: rgba(2, 6, 23, 0.42); border-radius: 0.7rem; padding: 0.65rem; }
+.metrics dt { color: #94a3b8; font-size: 0.75rem; }
+.metrics dd { margin: 0.15rem 0 0; font-weight: 800; }
+summary { cursor: pointer; color: #93c5fd; }
+ul { color: #cbd5e1; padding-left: 1.25rem; }
+
+.log-feed { padding: 0.5rem 1rem 1rem; max-height: 72vh; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.log-line { display: grid; grid-template-columns: 5.5rem 7rem 4.5rem 1fr; gap: 0.6rem; padding: 0.55rem 0; border-bottom: 1px solid rgba(148, 163, 184, 0.08); font-size: 0.85rem; }
+.log-line time { color: #64748b; }
+.log-line__agent { color: #93c5fd; }
+.log-line__level { text-transform: uppercase; color: #94a3b8; }
+.log-line--warn .log-line__level { color: #fbbf24; }
+.log-line--error .log-line__level { color: #f87171; }
+.log-line--debug { color: #94a3b8; }
+
+@media (max-width: 900px) {
+  .cockpit { grid-template-columns: 1fr; }
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .log-line { grid-template-columns: 1fr; gap: 0.2rem; }
+}
