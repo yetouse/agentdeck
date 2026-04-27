@@ -15,7 +15,7 @@ AgentDeck is a monorepo with a clear separation between the cockpit UI, the brid
 └─────────┼────────────────────────────────────────────────────┘
           │
 ┌─────────┼────────────────────────────────────────────────────┐
-│         │         Bridge Server (apps/api — planned)         │
+│         │         Bridge Server (apps/api)                   │
 │                                                              │
 │  ┌───────────────────────────────────────────────────────┐   │
 │  │                  Connector Registry                   │   │
@@ -35,22 +35,22 @@ AgentDeck is a monorepo with a clear separation between the cockpit UI, the brid
 
 ### `apps/web` — Cockpit UI
 
-The browser-based cockpit. Built with Vite and TypeScript — no heavy UI framework. Communicates with the bridge server over WebSocket, with SSE as a fallback for read-only deployments.
+The browser-based cockpit. Built with Vite and TypeScript — no heavy UI framework. It loads initial agent snapshots from the local bridge (`GET /api/agents`) and subscribes to live updates over Server-Sent Events (`GET /api/events`). When the bridge is unavailable, it falls back to demo data so the UI remains usable.
 
 Key responsibilities:
 - Render the agent grid, log streams, and tool call details
 - Manage local UI state (filters, selections, panel layout)
 - Reconnect automatically when the bridge disconnects
 
-### `apps/api` *(planned)*
+### `apps/api` — Local Bridge
 
-A lightweight Node.js bridge server that:
-- Maintains a registry of active connectors
-- Normalizes agent events into the AgentDeck event schema
-- Broadcasts events to connected browser clients via WebSocket
-- Persists session data to a local SQLite database (no external service required)
+A lightweight Node.js bridge server that currently:
+- Serves `GET /health`, `GET /api/agents`, `GET /api/agents/:id`
+- Broadcasts normalized `AgentEvent` objects over `GET /api/events` using SSE
+- Replays the current agent snapshot to each newly connected browser
+- Ships with a demo event generator that simulates Claude Code logs and tool calls
 
-Binds to `localhost` by default.
+It binds to `127.0.0.1` by default and keeps all state in memory for the initial MVP. SQLite persistence and real connector ingestion are planned next.
 
 ### `packages/connector-sdk` *(planned)*
 

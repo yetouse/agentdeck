@@ -29,13 +29,40 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Without the local bridge, the web app runs with demo data.
+
+To run the live demo bridge and the web cockpit together:
+
+```bash
+npm run dev:all
+```
+
+Or in two terminals:
+
+```bash
+npm run dev:api   # http://127.0.0.1:4000
+npm run dev:web   # http://localhost:3000
+```
+
+The web app reads `VITE_AGENTDECK_API_URL` when you want to point it at another bridge URL. The API bridge binds to `127.0.0.1` by default.
+
+## Local Bridge API
+
+The first bridge implementation is intentionally lightweight: no database, no secrets, and localhost-only by default.
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Health check with agent/client counts |
+| `GET /api/agents` | Current agent snapshots |
+| `GET /api/agents/:id` | Single agent snapshot |
+| `GET /api/events` | Server-Sent Events stream of normalized `AgentEvent` objects |
 
 ## Repository Structure
 
 ```
 agentdeck/
 ├── apps/
+│   ├── api/            # Local bridge server (Node.js + TypeScript + SSE)
 │   └── web/            # Browser cockpit (Vite + TypeScript, no framework)
 ├── packages/           # Shared libraries — connectors, SDK, types (planned)
 ├── docs/
