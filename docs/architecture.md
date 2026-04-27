@@ -11,7 +11,7 @@ AgentDeck is a monorepo with a clear separation between the cockpit UI, the brid
 │  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
 │  │ Agent Grid  │  │  Log Viewer  │  │ Tool Call Inspector │ │
 │  └─────────────┘  └──────────────┘  └─────────────────────┘ │
-│         ↑ WebSocket (AgentEvent stream)                      │
+│         ↑ SSE (AgentEvent stream)                            │
 └─────────┼────────────────────────────────────────────────────┘
           │
 ┌─────────┼────────────────────────────────────────────────────┐
@@ -50,7 +50,16 @@ A lightweight Node.js bridge server that currently:
 - Replays the current agent snapshot to each newly connected browser
 - Ships with a demo event generator that simulates Claude Code logs and tool calls
 
-It binds to `127.0.0.1` by default and keeps all state in memory for the initial MVP. SQLite persistence and real connector ingestion are planned next.
+It binds to `127.0.0.1` by default and keeps all state in memory for the initial MVP. SQLite persistence and additional first-party connectors are planned next.
+
+**Connector selection** is opt-in via the `AGENTDECK_CONNECTOR` environment variable:
+
+| Value | Connector | Source |
+|---|---|---|
+| *(unset)* | `demo` | Synthetic Claude Code-style events (default) |
+| `tmux` | `apps/api/src/tmux.ts` | Live tmux panes via `tmux list-panes` + `tmux capture-pane` |
+
+In tmux mode the bridge polls `tmux list-panes -a` every 2 s. Each pane becomes one `Agent`. New output lines from `tmux capture-pane -p -S -` are emitted as `agent:log` events; already-seen lines are never re-emitted. Panes that disappear receive a final `agent:status` event with `status: 'done'`. If tmux is unavailable or has no sessions, the bridge registers a single informational agent instead of crashing.
 
 ### `packages/connector-sdk` *(planned)*
 
@@ -65,6 +74,8 @@ First-party connectors:
 | `@agentdeck/connector-claude-code` | Reads Claude Code session logs from `~/.claude/` |
 | `@agentdeck/connector-openai-assistant` | Subscribes to OpenAI Assistant thread events |
 | `@agentdeck/connector-openhands` | OpenHands event stream |
+
+The built-in tmux connector (`apps/api/src/tmux.ts`) ships inside the bridge itself and requires no extra package. It uses only Node.js built-ins (`child_process`, `util`) and the `tmux` CLI.
 
 ---
 
@@ -131,11 +142,11 @@ type AgentEvent =
 
 ## Real-Time Transport
 
-**WebSocket** is the primary channel between the bridge server and the cockpit. It enables full-duplex communication (the UI can eventually send control commands back to agents).
+**Server-Sent Events (SSE)** is the current transport between the bridge server and the cockpit. It is a good fit for the MVP because the cockpit only needs a read-only stream of normalized `AgentEvent` objects from the local bridge.
 
-**Server-Sent Events (SSE)** will be available as a fallback for environments with restrictive proxies or when the cockpit is deployed in a read-only mode.
+**WebSocket** may be added later when the UI needs full-duplex control commands, for example to pause, resume, or send input to an agent process.
 
-The cockpit reconnects automatically with exponential backoff.
+The cockpit reconnects automatically when the SSE connection drops.
 
 ---
 

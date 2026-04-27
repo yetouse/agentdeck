@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { state, nextLogEvent, nextToolCallEvent, nextToolResultEvent } from './demo.js'
+import { startTmuxConnector } from './tmux.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -98,11 +99,19 @@ function startDemoLoop(): void {
 const server = createServer(router)
 
 server.listen(PORT, HOST, () => {
+  const connector = process.env['AGENTDECK_CONNECTOR']
   console.log(`AgentDeck API  →  http://${HOST}:${PORT}`)
   console.log('  GET /health       health check')
   console.log('  GET /api/agents   list agents (JSON)')
   console.log('  GET /api/events   SSE event stream')
-  startDemoLoop()
+  if (connector === 'tmux') {
+    console.log('  Connector: tmux   (polls every 2 s, set AGENTDECK_CONNECTOR=tmux)')
+    state.clear()
+    startTmuxConnector(state, broadcast)
+  } else {
+    console.log('  Connector: demo   (synthetic events, set AGENTDECK_CONNECTOR=tmux for real data)')
+    startDemoLoop()
+  }
 })
 
 server.on('error', (err: NodeJS.ErrnoException) => {

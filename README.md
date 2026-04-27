@@ -57,6 +57,56 @@ The first bridge implementation is intentionally lightweight: no database, no se
 | `GET /api/agents/:id` | Single agent snapshot |
 | `GET /api/events` | Server-Sent Events stream of normalized `AgentEvent` objects |
 
+## Connectors
+
+AgentDeck selects a data source via the `AGENTDECK_CONNECTOR` environment variable.
+
+### Demo (default)
+
+No configuration needed. The bridge generates synthetic Claude Code-style events so the UI is always usable without any external tools.
+
+### tmux
+
+Observe real tmux sessions as agents in the cockpit. Each tmux pane becomes one agent card.
+
+```bash
+# Start the bridge in tmux mode
+AGENTDECK_CONNECTOR=tmux npm run dev:api
+
+# Open the cockpit in a second terminal
+npm run dev:web
+```
+
+Or in a single command:
+
+```bash
+AGENTDECK_CONNECTOR=tmux npm run dev:all
+```
+
+**What the tmux connector does:**
+
+- Calls `tmux list-panes -a` every 2 s and registers one agent per pane
+- Captures pane output with `tmux capture-pane` and streams new lines as `agent:log` events — no duplicates
+- Assigns stable, URL-safe IDs: `tmux:<session>:<window>.<pane>` (e.g. `tmux:main:0.1`)
+- Maps shell panes (bash / zsh / fish / …) to `idle` status; active processes (claude / npm / node / …) to `running`
+- Marks panes that close as `done`
+- Surfaces a helpful `idle` or `error` agent if tmux has no sessions or is not installed
+
+**Example — observe Claude Code in a tmux session:**
+
+```bash
+# Terminal 1: start a tmux session and run Claude Code inside it
+tmux new-session -s dev
+claude
+
+# Terminal 2: start the bridge and cockpit
+AGENTDECK_CONNECTOR=tmux npm run dev:all
+```
+
+Open [http://localhost:3000](http://localhost:3000) to see your tmux panes as live agent cards.
+
+> **Prerequisite:** tmux ≥ 2.6 must be installed and at least one session must be running.
+
 ## Repository Structure
 
 ```
