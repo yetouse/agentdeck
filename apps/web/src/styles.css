@@ -935,6 +935,136 @@ details ul li {
   color: #c7d2fe;
 }
 
+/* ── Claude Code pressure ─────────────────────────────────────────────────── */
+.claude-pressure {
+  margin: 0.9rem 1.25rem 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.08), transparent 36%),
+    var(--bg-2);
+}
+
+.claude-pressure__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.claude-pressure__head strong {
+  display: block;
+  margin-top: 0.16rem;
+  font-size: 0.95rem;
+  color: var(--text-1);
+  letter-spacing: -0.02em;
+}
+
+.claude-pressure__eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  color: var(--text-4);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+}
+
+.pressure-pill {
+  border: 1px solid var(--border-3);
+  border-radius: 999px;
+  padding: 0.23rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pressure-pill--calm {
+  color: var(--emerald-light);
+  background: var(--emerald-muted);
+  border-color: var(--emerald-border);
+}
+
+.pressure-pill--elevated {
+  color: var(--amber-light);
+  background: var(--amber-muted);
+  border-color: var(--amber-border);
+}
+
+.pressure-pill--high {
+  color: var(--red-light);
+  background: var(--red-muted);
+  border-color: var(--red-border);
+}
+
+.pressure-pill--unknown {
+  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.claude-pressure__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.claude-pressure__metrics div {
+  padding: 0.55rem;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.claude-pressure__metrics dt {
+  font-size: 0.66rem;
+  color: var(--text-4);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.claude-pressure__metrics dd {
+  margin-top: 0.22rem;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  color: var(--text-1);
+}
+
+.claude-pressure__events {
+  display: grid;
+  gap: 0.35rem;
+  list-style: none;
+  margin-top: 0.65rem;
+}
+
+.claude-pressure__events li {
+  display: grid;
+  grid-template-columns: 4.3rem 1fr;
+  gap: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+.claude-pressure__events time {
+  color: var(--text-4);
+}
+
+.claude-pressure__note {
+  margin-top: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-4);
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 0.9rem;
+  padding: 1.25rem;
+}
+
 /* ── Activity Now (secondary recent signals strip) ─────────────────────────── */
 .activity-now {
   border-top: 1px solid var(--border-2);
@@ -1787,6 +1917,7 @@ details ul li {
   .log-line__level::before { content: ' · '; }
 
   .agent-grid { grid-template-columns: 1fr; }
+  .claude-pressure__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .agent-detail {
     width: 100vw;
@@ -1808,4 +1939,6 @@ details ul li {
   .cc-metric__value { font-size: 1.2rem; }
   .command-center__subtitle { display: none; }
   .agent-grid { grid-template-columns: 1fr; }
+  .claude-pressure { margin-left: 0.75rem; margin-right: 0.75rem; }
+  .claude-pressure__metrics { grid-template-columns: 1fr; }
 }

@@ -16,6 +16,7 @@ type DashboardView = 'now' | 'system' | 'history'
 
 let agents: Agent[] = []
 let liveLogs: LogStreamEntry[] = []
+let claudeTelemetry: ClaudeTelemetry | null = null
 let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
 let selectedAgentId: string | null = null
 let selectedTab: TabId = 'topology'
@@ -47,6 +48,28 @@ interface WireAgent {
   logs: WireLogEntry[]
   metrics: { tokensUsed: number; toolCallsCount: number; filesModified: string[]; durationMs: number }
   topology?: WireTopology
+}
+
+interface ClaudeTelemetryEvent {
+  timestamp: string
+  type: 'start' | 'wait'
+  printMode?: boolean
+  cap?: number
+  cappedOrAdded?: boolean
+  argc?: number
+  waitSeconds?: number
+  reason?: string
+}
+
+interface ClaudeTelemetry {
+  source: string
+  updatedAt: string
+  launches1h: number
+  waits1h: number
+  capped1h: number
+  totalWaitSeconds1h: number
+  pressure: 'calm' | 'elevated' | 'high'
+  recentEvents: ClaudeTelemetryEvent[]
 }
 
 type WireEvent =
@@ -83,12 +106,24 @@ function fromWireAgent(w: WireAgent): Agent {
 
 // ── Bridge ───────────────────────────────────────────────────────────────────
 
+async function fetchClaudeTelemetry(): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/api/claude/telemetry`, { signal: AbortSignal.timeout(3000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json() as { telemetry: ClaudeTelemetry }
+    claudeTelemetry = data.telemetry
+  } catch {
+    claudeTelemetry = null
+  }
+}
+
 async function connect(): Promise<void> {
   try {
     const res = await fetch(`${API_BASE}/api/agents`, { signal: AbortSignal.timeout(3000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json() as { agents: WireAgent[] }
     agents = data.agents.map(fromWireAgent)
+    await fetchClaudeTelemetry()
     liveLogs = []
     mode = 'live'
     render()
@@ -522,6 +557,7 @@ function render(): void {
   restoreInputs(saved)
 
   renderActivityNow()
+  renderClaudePressure()
   renderEventTicker()
 
   if (selectedAgentId && !agents.some(a => a.id === selectedAgentId)) {
@@ -608,6 +644,60 @@ function renderAgentControls(agent: Agent): string {
       </div>
     </div>
   `
+}
+
+// ── Claude Code pressure ─────────────────────────────────────────────────────
+
+function pressureLabel(pressure: ClaudeTelemetry['pressure']): string {
+  switch (pressure) {
+    case 'calm':     return 'calme'
+    case 'elevated': return 'élevée'
+    case 'high':     return 'haute'
+  }
+}
+
+function renderClaudeEvent(event: ClaudeTelemetryEvent): string {
+  const time = new Date(event.timestamp).toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  const body = event.type === 'wait'
+    ? `attente ${event.waitSeconds ?? 0}s · ${event.reason ?? 'cooldown'}`
+    : `lancement · cap ${event.cap ?? '—'}${event.cappedOrAdded ? ' · cap appliqué' : ''}`
+  return `<li><time>${time}</time><span>${esc(body)}</span></li>`
+}
+
+function renderClaudePressure(): void {
+  const panel = document.querySelector<HTMLDivElement>('#claude-pressure')
+  if (!panel) return
+
+  if (!claudeTelemetry) {
+    panel.innerHTML = `
+      <div class="claude-pressure__head">
+        <div><span class="claude-pressure__eyebrow">Claude Code</span><strong>Pression inconnue</strong></div>
+        <span class="pressure-pill pressure-pill--unknown">hors ligne</span>
+      </div>
+      <p class="claude-pressure__note">La télémétrie locale du throttle n’est pas encore disponible.</p>`
+    return
+  }
+
+  const t = claudeTelemetry
+  const events = t.recentEvents.slice(0, 4)
+  panel.innerHTML = `
+    <div class="claude-pressure__head">
+      <div>
+        <span class="claude-pressure__eyebrow">Claude Code</span>
+        <strong>Pression ${pressureLabel(t.pressure)}</strong>
+      </div>
+      <span class="pressure-pill pressure-pill--${t.pressure}">${t.pressure}</span>
+    </div>
+    <dl class="claude-pressure__metrics">
+      <div><dt>Lancements 1h</dt><dd>${t.launches1h}</dd></div>
+      <div><dt>Attentes</dt><dd>${t.waits1h}</dd></div>
+      <div><dt>Caps appliqués</dt><dd>${t.capped1h}</dd></div>
+      <div><dt>Cooldown</dt><dd>${formatDuration(t.totalWaitSeconds1h * 1000)}</dd></div>
+    </dl>
+    ${events.length ? `<ol class="claude-pressure__events">${events.map(renderClaudeEvent).join('')}</ol>` : '<p class="claude-pressure__note">Aucun lancement récent observé.</p>'}
+    <p class="claude-pressure__note">Mis à jour ${timeAgo(new Date(t.updatedAt))} · source locale sanitisée</p>`
 }
 
 // ── Activity Now (primary live signals strip) ────────────────────────────────
@@ -1138,7 +1228,12 @@ agents = makeDemoAgents()
 render()
 connect()
 
-// Keep "time ago" / duration tickers fresh while the inspector is open.
+// Keep "time ago" / duration tickers and local Claude pressure fresh.
 setInterval(() => {
+  if (mode === 'live') {
+    fetchClaudeTelemetry()
+      .then(renderClaudePressure)
+      .catch(() => { /* already handled in fetchClaudeTelemetry */ })
+  }
   if (selectedAgentId) renderAgentDetail()
 }, CLOCK_RENDER_MS)

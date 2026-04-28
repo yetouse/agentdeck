@@ -4,6 +4,7 @@ import { startTmuxConnector } from './tmux.js'
 import { startHermesConnector, getLatestHermesStatus } from './hermes.js'
 import { launchClaude } from './launch.js'
 import { sendAgentInput, stopAgent } from './control.js'
+import { readClaudeTelemetry } from './claudeTelemetry.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -150,6 +151,10 @@ function handleHermesStatus(_req: IncomingMessage, res: ServerResponse): void {
   json(res, 200, getLatestHermesStatus())
 }
 
+async function handleClaudeTelemetry(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  json(res, 200, { telemetry: await readClaudeTelemetry() })
+}
+
 function handleEvents(req: IncomingMessage, res: ServerResponse): void {
   setCors(res)
   res.writeHead(200, {
@@ -186,6 +191,11 @@ function router(req: IncomingMessage, res: ServerResponse): void {
     handleAgents(req, res)
   } else if (req.method === 'GET' && path === '/api/hermes/status') {
     handleHermesStatus(req, res)
+  } else if (req.method === 'GET' && path === '/api/claude/telemetry') {
+    handleClaudeTelemetry(req, res).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Internal server error'
+      json(res, 500, { error: msg })
+    })
   } else if (req.method === 'GET' && path.startsWith('/api/agents/')) {
     handleAgent(req, res, path.slice('/api/agents/'.length))
   } else if (req.method === 'GET' && path === '/api/events') {
@@ -230,6 +240,7 @@ server.listen(PORT, HOST, () => {
   console.log('  GET  /health                       health check')
   console.log('  GET  /api/agents                   list agents (JSON)')
   console.log('  GET  /api/events                   SSE event stream')
+  console.log('  GET  /api/claude/telemetry         Claude Code throttle telemetry (JSON)')
   console.log('  POST /api/agents/launch             launch a new Claude Code tmux session')
   console.log('  POST /api/agents/:id/input          send text to a tmux agent pane')
   console.log('  POST /api/agents/:id/stop           stop or kill a tmux agent session')
