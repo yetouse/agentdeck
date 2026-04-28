@@ -69,36 +69,9 @@
             <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
           </div>
 
-          <div id="activity-now-feed" class="activity-now"></div>
-
-          <div class="launch-zone">
-            <form id="launch-form" class="launch-form" autocomplete="off">
-              <div class="launch-zone__header">
-                <span class="launch-zone__eyebrow">New session</span>
-                <h3 class="launch-zone__title">Launch Claude Code into tmux</h3>
-              </div>
-              <div class="launch-form__commander">
-                <span class="launch-form__prompt" aria-hidden="true">›</span>
-                <input id="launch-task" type="text" class="launch-form__input launch-form__input--task"
-                  placeholder="Describe what the agent should do…" maxlength="2000" required aria-label="Task" />
-              </div>
-              <div class="launch-form__secondary">
-                <input id="launch-name" type="text" class="launch-form__input"
-                  placeholder="Session name" maxlength="64" aria-label="Session name" />
-                <input id="launch-cwd" type="text" class="launch-form__input"
-                  placeholder="Working directory" aria-label="Working directory" />
-                <button type="submit" class="launch-form__btn">
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
-                    <path d="M1.5 5.5H9.5M9.5 5.5L6.5 2.5M9.5 5.5L6.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                  Launch
-                </button>
-              </div>
-              <p id="launch-status" class="launch-form__status" role="status" aria-live="polite"></p>
-            </form>
-          </div>
-
           <div id="agent-grid" class="agent-grid"></div>
+
+          <div id="activity-now-feed" class="activity-now"></div>
         </section>
       </main>
 

@@ -234,11 +234,11 @@ server.listen(PORT, HOST, () => {
   console.log('  POST /api/agents/:id/input          send text to a tmux agent pane')
   console.log('  POST /api/agents/:id/stop           stop or kill a tmux agent session')
   if (connector === 'tmux') {
-    console.log('  Connector: tmux   (polls every 2 s, set AGENTDECK_CONNECTOR=tmux)')
+    console.log(`  Connector: tmux   (polls every ${Number(process.env['AGENTDECK_TMUX_POLL_MS'] ?? 10_000) / 1000} s, set AGENTDECK_CONNECTOR=tmux)`)
     state.clear()
     startTmuxConnector(state, broadcast)
   } else if (connector === 'hermes') {
-    console.log('  Connector: hermes (polls Hermes dashboard at 127.0.0.1:9119 every 5 s)')
+    console.log(`  Connector: hermes (polls Hermes dashboard at 127.0.0.1:9119 every ${Number(process.env['AGENTDECK_HERMES_POLL_MS'] ?? 30_000) / 1000} s)`)
     console.log('  GET  /api/hermes/status            sanitized Hermes status (JSON)')
     state.clear()
     startHermesConnector(state, broadcast)

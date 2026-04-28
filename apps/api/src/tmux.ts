@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile)
 const SHELL_COMMANDS = new Set(['bash', 'zsh', 'sh', 'fish', 'dash', 'csh', 'tcsh', 'ksh'])
 
 const EXEC_TIMEOUT_MS = 5_000
+const POLL_MS = Number(process.env['AGENTDECK_TMUX_POLL_MS'] ?? 10_000)
 
 function iso(): string {
   return new Date().toISOString()
@@ -256,7 +257,7 @@ export function startTmuxConnector(
   }
 
   void poll()
-  const handle = setInterval(() => { void poll() }, 2_000)
+  const handle = setInterval(() => { void poll() }, POLL_MS)
 
   return () => { clearInterval(handle) }
 }

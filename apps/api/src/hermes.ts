@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { Agent, AgentEvent, AgentStatus, LogEntry, Topology, TopologyEdge, TopologyNode } from './types.js'
 
 const HERMES_URL = 'http://127.0.0.1:9119/api/status'
-const POLL_MS = 5_000
+const POLL_MS = Number(process.env['AGENTDECK_HERMES_POLL_MS'] ?? 30_000)
 const FETCH_TIMEOUT_MS = 4_000
 const SESSIONS_JSON = '/root/.hermes/sessions/sessions.json'
 const SESSIONS_DIR = '/root/.hermes/sessions'

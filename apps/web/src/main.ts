@@ -4,6 +4,9 @@ import type { Agent, AgentStatus, LogEntry, Topology, TopologyEdge, TopologyNode
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? ''
+const CONNECT_RETRY_MS = 15_000
+const SSE_RETRY_MS = 10_000
+const CLOCK_RENDER_MS = 15_000
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ async function connect(): Promise<void> {
       mode = 'demo'
       render()
     }
-    setTimeout(connect, 5000)
+    setTimeout(connect, CONNECT_RETRY_MS)
   }
 }
 
@@ -113,7 +116,7 @@ function listenSSE(): void {
     es.close()
     mode = 'reconnecting'
     render()
-    setTimeout(connect, 3000)
+    setTimeout(connect, SSE_RETRY_MS)
   }
 }
 
@@ -363,6 +366,17 @@ function latestAgentSignal(agent: Agent): LogEntry | undefined {
   return agent.logs.length ? agent.logs[agent.logs.length - 1] : undefined
 }
 
+function recentAgentSignals(agent: Agent, max = 4): LogEntry[] {
+  return agent.logs.slice(-max).reverse()
+}
+
+function hasFreshDevelopmentSignal(agent: Agent): boolean {
+  if (!isProjectAgent(agent)) return false
+  const latest = latestAgentSignal(agent)
+  if (!latest) return agent.status === 'running'
+  return agent.status === 'running' && Date.now() - latest.timestamp.getTime() < 2 * 60 * 1000
+}
+
 function visibleAgents(view: DashboardView): Agent[] {
   switch (view) {
     case 'now':
@@ -542,16 +556,24 @@ function renderAgentCard(agent: Agent): string {
       </details>`
     : ''
 
-  const latest = latestAgentSignal(agent)
-  const latestSection = latest
+  const recentSignals = recentAgentSignals(agent)
+  const latestSection = recentSignals.length > 0
     ? `<div class="agent-card__latest">
-        <span>Latest signal</span>
-        <p>${esc(truncate(latest.message, 120))}</p>
+        <span>Live trail</span>
+        <ol class="agent-card__trail">
+          ${recentSignals.map(entry => `
+            <li class="agent-card__trail-line agent-card__trail-line--${entry.level}">
+              <time>${entry.timestamp.toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+              <span>${esc(truncate(entry.message, 120))}</span>
+            </li>`).join('')}
+        </ol>
       </div>`
     : ''
 
+  const activeSignalClass = hasFreshDevelopmentSignal(agent) ? ' agent-card--activity-signal' : ''
+
   return `
-    <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="Open details for ${esc(agent.name)}">
+    <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}${activeSignalClass}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="Open details for ${esc(agent.name)}">
       <div class="agent-card__header">
         <h3>${esc(agent.name)}</h3>
         <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
@@ -996,58 +1018,6 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-// ── Launch form ───────────────────────────────────────────────────────────────
-
-interface LaunchResponse {
-  sessionName?: string
-  message?: string
-  warning?: string
-  error?: string
-}
-
-document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submit', async (e) => {
-  e.preventDefault()
-  const task    = document.querySelector<HTMLInputElement>('#launch-task')?.value.trim() ?? ''
-  const nameVal = document.querySelector<HTMLInputElement>('#launch-name')?.value.trim()
-  const cwdVal  = document.querySelector<HTMLInputElement>('#launch-cwd')?.value.trim()
-  const statusEl = document.querySelector<HTMLParagraphElement>('#launch-status')
-  const btn      = document.querySelector<HTMLButtonElement>('.launch-form__btn')
-
-  if (!statusEl || !btn) return
-
-  statusEl.textContent = 'Launching…'
-  statusEl.className = 'launch-form__status launch-form__status--pending'
-  btn.disabled = true
-
-  try {
-    const res = await fetch(`${API_BASE}/api/agents/launch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task,
-        name: nameVal || undefined,
-        cwd:  cwdVal  || undefined,
-      }),
-      signal: AbortSignal.timeout(12_000),
-    })
-    const data = await res.json() as LaunchResponse
-    if (res.ok) {
-      const warn = data.warning ? ` — ${data.warning}` : ''
-      statusEl.textContent = `✓ ${data.message ?? 'Launched'}${warn}`
-      statusEl.className = 'launch-form__status launch-form__status--ok'
-    } else {
-      statusEl.textContent = `✗ ${data.error ?? 'Launch failed'}`
-      statusEl.className = 'launch-form__status launch-form__status--error'
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Network error'
-    statusEl.textContent = `✗ ${msg}`
-    statusEl.className = 'launch-form__status launch-form__status--error'
-  } finally {
-    btn.disabled = false
-  }
-})
-
 // ── Click delegation ─────────────────────────────────────────────────────────
 
 document.addEventListener('click', (e: MouseEvent) => {
@@ -1171,4 +1141,4 @@ connect()
 // Keep "time ago" / duration tickers fresh while the inspector is open.
 setInterval(() => {
   if (selectedAgentId) renderAgentDetail()
-}, 5000)
+}, CLOCK_RENDER_MS)
