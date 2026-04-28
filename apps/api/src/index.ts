@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { state, nextLogEvent, nextToolCallEvent, nextToolResultEvent } from './demo.js'
 import { startTmuxConnector } from './tmux.js'
 import { launchClaude } from './launch.js'
+import { sendAgentInput, stopAgent } from './control.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -59,7 +60,9 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
       chunks.push(chunk)
     })
     req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (raw.length === 0) { resolve({}); return }
+      try { resolve(JSON.parse(raw)) }
       catch { reject(Object.assign(new Error('Invalid JSON body'), { status: 400 })) }
     })
     req.on('error', reject)
@@ -99,6 +102,46 @@ async function handleLaunch(req: IncomingMessage, res: ServerResponse): Promise<
       : 500
     const message = err instanceof Error ? err.message : 'Internal server error'
     json(res, status, { error: message })
+  }
+}
+
+async function handleAgentInput(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+  let body: unknown
+  try {
+    body = await readBody(req)
+  } catch (err: unknown) {
+    const status = (err instanceof Error && typeof (err as Error & { status?: number }).status === 'number')
+      ? (err as Error & { status: number }).status : 400
+    json(res, status, { error: err instanceof Error ? err.message : 'Invalid request' })
+    return
+  }
+  try {
+    const result = await sendAgentInput(state, id, body)
+    json(res, 200, result)
+  } catch (err: unknown) {
+    const status = (err instanceof Error && typeof (err as Error & { status?: number }).status === 'number')
+      ? (err as Error & { status: number }).status : 500
+    json(res, status, { error: err instanceof Error ? err.message : 'Internal server error' })
+  }
+}
+
+async function handleAgentStop(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+  let body: unknown
+  try {
+    body = await readBody(req)
+  } catch (err: unknown) {
+    const status = (err instanceof Error && typeof (err as Error & { status?: number }).status === 'number')
+      ? (err as Error & { status: number }).status : 400
+    json(res, status, { error: err instanceof Error ? err.message : 'Invalid request' })
+    return
+  }
+  try {
+    const result = await stopAgent(state, id, body)
+    json(res, 200, result)
+  } catch (err: unknown) {
+    const status = (err instanceof Error && typeof (err as Error & { status?: number }).status === 'number')
+      ? (err as Error & { status: number }).status : 500
+    json(res, status, { error: err instanceof Error ? err.message : 'Internal server error' })
   }
 }
 
@@ -145,6 +188,18 @@ function router(req: IncomingMessage, res: ServerResponse): void {
       const msg = err instanceof Error ? err.message : 'Internal server error'
       json(res, 500, { error: msg })
     })
+  } else if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/input')) {
+    const id = path.slice('/api/agents/'.length, -'/input'.length)
+    handleAgentInput(req, res, id).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Internal server error'
+      json(res, 500, { error: msg })
+    })
+  } else if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/stop')) {
+    const id = path.slice('/api/agents/'.length, -'/stop'.length)
+    handleAgentStop(req, res, id).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Internal server error'
+      json(res, 500, { error: msg })
+    })
   } else {
     json(res, 404, { error: 'Not found' })
   }
@@ -165,10 +220,12 @@ const server = createServer(router)
 server.listen(PORT, HOST, () => {
   const connector = process.env['AGENTDECK_CONNECTOR']
   console.log(`AgentDeck API  →  http://${HOST}:${PORT}`)
-  console.log('  GET  /health              health check')
-  console.log('  GET  /api/agents          list agents (JSON)')
-  console.log('  GET  /api/events          SSE event stream')
-  console.log('  POST /api/agents/launch   launch a new Claude Code tmux session')
+  console.log('  GET  /health                       health check')
+  console.log('  GET  /api/agents                   list agents (JSON)')
+  console.log('  GET  /api/events                   SSE event stream')
+  console.log('  POST /api/agents/launch             launch a new Claude Code tmux session')
+  console.log('  POST /api/agents/:id/input          send text to a tmux agent pane')
+  console.log('  POST /api/agents/:id/stop           stop or kill a tmux agent session')
   if (connector === 'tmux') {
     console.log('  Connector: tmux   (polls every 2 s, set AGENTDECK_CONNECTOR=tmux)')
     state.clear()

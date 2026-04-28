@@ -204,6 +204,27 @@ const DEMO_LOGS: Array<{ agentId: string; agentName: string; entry: Omit<LogEntr
 
 // ── Render ───────────────────────────────────────────────────────────────────
 
+function preserveInputs(): Map<string, string> {
+  const saved = new Map<string, string>()
+  document.querySelectorAll<HTMLTextAreaElement>('.agent-controls__input').forEach(ta => {
+    const card = ta.closest<HTMLElement>('[data-agent-id]')
+    const id = card?.dataset['agentId']
+    if (id) saved.set(id, ta.value)
+  })
+  return saved
+}
+
+function restoreInputs(saved: Map<string, string>): void {
+  document.querySelectorAll<HTMLTextAreaElement>('.agent-controls__input').forEach(ta => {
+    const card = ta.closest<HTMLElement>('[data-agent-id]')
+    const id = card?.dataset['agentId']
+    if (id) {
+      const val = saved.get(id)
+      if (val !== undefined) ta.value = val
+    }
+  })
+}
+
 function render(): void {
   const grid      = document.querySelector<HTMLDivElement>('#agent-grid')
   const count     = document.querySelector<HTMLSpanElement>('#agent-count')
@@ -227,7 +248,9 @@ function render(): void {
     (waiting ? `<span><strong>${waiting}</strong> waiting</span>` : '') +
     (errors  ? `<span><strong>${errors}</strong> error${errors > 1 ? 's' : ''}</span>` : '')
 
+  const saved = preserveInputs()
   grid.innerHTML = agents.map(renderAgentCard).join('')
+  restoreInputs(saved)
 
   const prev = filter.value
   filter.innerHTML = '<option value="all">All agents</option>' +
@@ -253,8 +276,12 @@ function renderAgentCard(agent: Agent): string {
     ? agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')
     : '<li>No file changes yet</li>'
 
+  const controls = mode === 'live' && agent.id.startsWith('tmux:')
+    ? renderAgentControls(agent)
+    : ''
+
   return `
-    <article class="agent-card agent-card--${agent.status}">
+    <article class="agent-card agent-card--${agent.status}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}">
       <div class="agent-card__header">
         <h3>${esc(agent.name)}</h3>
         <span class="status status--${agent.status}">${agent.status}</span>
@@ -269,7 +296,23 @@ function renderAgentCard(agent: Agent): string {
         <summary>Modified files</summary>
         <ul>${modified}</ul>
       </details>
+      ${controls}
     </article>
+  `
+}
+
+function renderAgentControls(agent: Agent): string {
+  const inactive = agent.status === 'done' || agent.status === 'error'
+  const dis = inactive ? ' disabled' : ''
+  return `
+    <div class="agent-controls">
+      <textarea class="agent-controls__input" rows="2" placeholder="Send input to agent…"${dis}></textarea>
+      <div class="agent-controls__row">
+        <label><input type="checkbox" class="agent-controls__enter" checked> Enter</label>
+        <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>Send</button>
+        <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>Stop</button>
+      </div>
+    </div>
   `
 }
 
@@ -337,6 +380,50 @@ document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submi
     statusEl.className = 'launch-form__status launch-form__status--error'
   } finally {
     btn.disabled = false
+  }
+})
+
+// ── Agent controls ───────────────────────────────────────────────────────────
+
+document.querySelector<HTMLDivElement>('#agent-grid')?.addEventListener('click', (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  const btn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
+  if (!btn || btn.disabled) return
+
+  const card = btn.closest<HTMLElement>('[data-agent-id]')
+  if (!card) return
+  const agentId = card.dataset['agentId'] ?? ''
+
+  if (btn.classList.contains('agent-control-send')) {
+    const textarea = card.querySelector<HTMLTextAreaElement>('.agent-controls__input')
+    const enterCb  = card.querySelector<HTMLInputElement>('.agent-controls__enter')
+    const text = textarea?.value ?? ''
+    if (!text.trim()) return
+
+    btn.disabled = true
+    fetch(`${API_BASE}/api/agents/${agentId}/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, enter: enterCb?.checked ?? true }),
+      signal: AbortSignal.timeout(5000),
+    })
+      .then(res => { if (res.ok && textarea) textarea.value = '' })
+      .catch(() => { /* network error — user can retry */ })
+      .finally(() => { btn.disabled = false })
+
+  } else if (btn.classList.contains('agent-control-stop')) {
+    const agentName = card.dataset['agentName'] ?? agentId
+    if (!confirm(`Stop "${agentName}"?\n\nThis will kill the tmux session.`)) return
+
+    btn.disabled = true
+    fetch(`${API_BASE}/api/agents/${agentId}/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(5000),
+    })
+      .catch(() => { /* network error */ })
+      .finally(() => { btn.disabled = false })
   }
 })
 

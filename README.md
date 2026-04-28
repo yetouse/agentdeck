@@ -57,6 +57,8 @@ The first bridge implementation is intentionally lightweight: no database, no se
 | `GET /api/agents/:id` | Single agent snapshot |
 | `GET /api/events` | Server-Sent Events stream of normalized `AgentEvent` objects |
 | `POST /api/agents/launch` | Launch a new Claude Code session in a detached tmux window |
+| `POST /api/agents/:id/input` | Send text to a tmux agent pane |
+| `POST /api/agents/:id/stop` | Stop or kill a tmux agent session or pane |
 
 ### Launching a Claude Code session
 
@@ -92,6 +94,55 @@ curl -s -X POST http://127.0.0.1:4000/api/agents/launch \
 Error responses: `400` for invalid input, `403` if the local-only smoke-test command override is disabled, `503` if tmux is not installed, `500` for unexpected errors.
 
 > **Safety note:** The endpoint binds to `127.0.0.1` and is intended for local development only. Do not expose it to a network without adding authentication. The undocumented `command` request field is reserved for smoke tests and is ignored unless `AGENTDECK_ALLOW_COMMAND_OVERRIDE=1` is set.
+
+### Sending input to a tmux agent
+
+`POST /api/agents/:id/input` sends text to the tmux pane backing a tmux agent. Only agents whose ID starts with `tmux:` are supported.
+
+```bash
+curl -s -X POST http://127.0.0.1:4000/api/agents/tmux:main:0.0/input \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"y","enter":true}'
+```
+
+**Request body** (JSON):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | Text to send to the pane (max 4000 chars) |
+| `enter` | boolean | no | If `true`, an Enter key is sent after the text (default `false`) |
+
+**Response** (200 OK): `{ "ok": true }`
+
+Error responses: `400` for invalid/missing `text` or non-tmux agent ID, `404` if the agent is not found, `500` if the tmux command fails.
+
+> **Security note:** Text is passed directly to `tmux send-keys` via `execFile` with no shell interpolation. The bridge is localhost-only; do not expose it without authentication.
+
+### Stopping a tmux agent
+
+`POST /api/agents/:id/stop` kills a tmux session or pane. Only agents whose ID starts with `tmux:` are supported.
+
+```bash
+# Kill the entire session (default)
+curl -s -X POST http://127.0.0.1:4000/api/agents/tmux:main:0.0/stop \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Kill only the pane
+curl -s -X POST http://127.0.0.1:4000/api/agents/tmux:main:0.0/stop \
+  -H 'Content-Type: application/json' \
+  -d '{"scope":"pane"}'
+```
+
+**Request body** (JSON):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `scope` | `"session"` \| `"pane"` | no | What to kill — `"session"` (default) runs `tmux kill-session`, `"pane"` runs `tmux kill-pane` |
+
+**Response** (200 OK): `{ "ok": true, "scope": "session", "target": "main" }`
+
+Error responses: `400` for invalid `scope` or non-tmux agent ID, `404` if the agent is not found, `500` if the tmux command fails.
 
 ## Connectors
 

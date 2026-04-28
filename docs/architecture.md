@@ -64,6 +64,15 @@ Accepts a JSON body with `task` (required, ≤ 2 000 chars), `name` (optional di
 
 The new tmux session is automatically discovered on the connector's next 2-second poll when the bridge runs with `AGENTDECK_CONNECTOR=tmux`. Sessions can also be launched while the demo connector is active — they will appear the next time the bridge is restarted in tmux mode.
 
+**Control endpoints — `POST /api/agents/:id/input` and `POST /api/agents/:id/stop`**
+
+Two control endpoints allow the cockpit to interact with running tmux agents:
+
+- `POST /api/agents/:id/input` — accepts `{ text: string, enter?: boolean }`. Calls `tmux send-keys -t <target> -- <text>` via `execFile` (no shell interpolation). If `enter` is `true`, a second `tmux send-keys … Enter` call is made. Returns `{ ok: true }` on success. Validates that the agent ID starts with `tmux:` (400 otherwise), that the agent exists (404 otherwise), and that `text` is a non-empty string ≤ 4 000 chars.
+- `POST /api/agents/:id/stop` — accepts `{ scope?: "session" | "pane" }` (defaults to `"session"`). Calls `tmux kill-session -t <session>` or `tmux kill-pane -t <target>` via `execFile`. Returns `{ ok: true, scope, target }`. Same ID and existence checks apply.
+
+Both endpoints are implemented in `apps/api/src/control.ts` and imported by the router in `apps/api/src/index.ts`. The tmux connector stores a safe AgentDeck ID for routing and keeps the exact tmux target in the agent name (`<session>:<window>.<pane>`), which the control layer uses for `tmux` commands.
+
 **Connector selection** is opt-in via the `AGENTDECK_CONNECTOR` environment variable:
 
 | Value | Connector | Source |
@@ -156,7 +165,7 @@ type AgentEvent =
 
 **Server-Sent Events (SSE)** is the current transport between the bridge server and the cockpit. It is a good fit for the MVP because the cockpit only needs a read-only stream of normalized `AgentEvent` objects from the local bridge.
 
-**WebSocket** may be added later when the UI needs full-duplex control commands, for example to pause, resume, or send input to an agent process.
+**WebSocket** may be added later if the control plane needs lower-latency, bidirectional agent interaction. For the MVP, control actions use focused localhost HTTP `POST` endpoints while SSE remains the read stream.
 
 The cockpit reconnects automatically when the SSE connection drops.
 
@@ -175,3 +184,5 @@ The cockpit uses a minimal reactive store (no external state library). The store
 - Persisted session data is stored locally and never sent to any external service
 - The UI escapes all agent-produced strings before rendering to prevent XSS from malicious log output
 - `POST /api/agents/launch` uses `execFile` (not `exec`) so outer tmux arguments are never interpreted by a shell; user-supplied task text is single-quoted for the inner shell command. The `cwd` field is validated via `fs.stat` before use. The local smoke-test `command` override is rejected unless `AGENTDECK_ALLOW_COMMAND_OVERRIDE=1` is explicitly set. Authentication is not yet implemented — the localhost-only binding is the current trust boundary.
+- `POST /api/agents/:id/input` passes text directly to `tmux send-keys` via `execFile` with no shell involved; the `--` argument separator prevents text from being interpreted as tmux option flags. Only tmux-backed agents (IDs starting with `tmux:`) are accepted; the target is derived mechanically from the ID without any string interpolation into a shell.
+- `POST /api/agents/:id/stop` calls `tmux kill-session` or `tmux kill-pane` via `execFile`. The session name and pane target are derived from the agent ID; no user-supplied string is passed to a shell. These endpoints are localhost-only — do not expose the bridge to a network without adding authentication.
