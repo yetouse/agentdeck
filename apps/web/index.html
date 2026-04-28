@@ -100,6 +100,13 @@
           <div id="log-feed" class="log-feed" role="log" aria-live="polite" aria-label="Agent log output"></div>
         </section>
       </main>
+
+      <div id="agent-detail-shell" class="agent-detail-shell" aria-hidden="true">
+        <button id="agent-detail-backdrop" class="agent-detail-backdrop" type="button" aria-label="Close agent detail"></button>
+        <aside id="agent-detail" class="agent-detail" role="dialog" aria-modal="true" aria-labelledby="agent-detail-title">
+          <div id="agent-detail-content" class="agent-detail__content"></div>
+        </aside>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

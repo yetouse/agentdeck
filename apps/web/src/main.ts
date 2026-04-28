@@ -10,6 +10,7 @@ const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? 'http://127.0.0.1:400
 let agents: Agent[] = []
 let liveLogs: Array<{ agentId: string; agentName: string; entry: LogEntry }> = []
 let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
+let selectedAgentId: string | null = null
 
 // ── Wire types (ISO strings from JSON) ───────────────────────────────────────
 
@@ -301,6 +302,11 @@ function render(): void {
   const atBottom = logFeed.scrollHeight - logFeed.scrollTop <= logFeed.clientHeight + 40
   logFeed.innerHTML = visible.slice(-200).map(renderLogLine).join('')
   if (atBottom) logFeed.scrollTop = logFeed.scrollHeight
+
+  if (selectedAgentId && !agents.some(a => a.id === selectedAgentId)) {
+    selectedAgentId = null
+  }
+  renderAgentDetail()
 }
 
 function renderAgentCard(agent: Agent): string {
@@ -324,7 +330,7 @@ function renderAgentCard(agent: Agent): string {
     : ''
 
   return `
-    <article class="agent-card agent-card--${agent.status}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}">
+    <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="Open details for ${esc(agent.name)}">
       <div class="agent-card__header">
         <h3>${esc(agent.name)}</h3>
         <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
@@ -373,6 +379,112 @@ function renderLogLine({ agentName, entry }: { agentId: string; agentName: strin
       <span class="log-line__msg">${esc(entry.message)}</span>
     </div>
   `
+}
+
+function renderAgentDetail(): void {
+  const shell = document.querySelector<HTMLElement>('#agent-detail-shell')
+  const content = document.querySelector<HTMLElement>('#agent-detail-content')
+  if (!shell || !content) return
+
+  const agent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : null
+  if (!agent) {
+    shell.classList.remove('agent-detail-shell--open')
+    shell.setAttribute('aria-hidden', 'true')
+    content.innerHTML = ''
+    return
+  }
+
+  const durationMs = agent.startedAt ? Date.now() - agent.startedAt.getTime() : agent.metrics.durationMs
+  const logs = getAgentLogsForDetail(agent)
+  const files = agent.metrics.filesModified.length
+    ? agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')
+    : '<li>No modified files yet</li>'
+  const controls = mode === 'live' && agent.id.startsWith('tmux:') ? renderAgentControls(agent) : ''
+
+  shell.classList.add('agent-detail-shell--open')
+  shell.setAttribute('aria-hidden', 'false')
+  content.innerHTML = `
+    <div class="agent-detail__header">
+      <div>
+        <span class="agent-detail__eyebrow">Agent inspector</span>
+        <h2 id="agent-detail-title">${esc(agent.name)}</h2>
+      </div>
+      <button class="agent-detail__close" type="button" aria-label="Close agent detail">×</button>
+    </div>
+
+    <div class="agent-detail__status-row">
+      <span class="status status--${agent.status}">${agent.status === 'running' ? '<span class="agent-pulse" aria-hidden="true"></span>' : ''}${agent.status}</span>
+      <code>${esc(agent.id)}</code>
+    </div>
+
+    <section class="agent-detail__section">
+      <h3>Mission</h3>
+      <p class="agent-detail__task">${esc(agent.task)}</p>
+    </section>
+
+    <section class="agent-detail__metrics">
+      <div><span>Duration</span><strong>${durationMs > 0 ? formatDuration(durationMs) : '—'}</strong></div>
+      <div><span>Updated</span><strong>${timeAgo(agent.updatedAt)}</strong></div>
+      <div><span>Tokens</span><strong>${fmtTokens(agent.metrics.tokensUsed)}</strong></div>
+      <div><span>Tools</span><strong>${agent.metrics.toolCallsCount}</strong></div>
+      <div><span>Files</span><strong>${agent.metrics.filesModified.length}</strong></div>
+      <div><span>Mode</span><strong>${mode}</strong></div>
+    </section>
+
+    ${controls ? `<section class="agent-detail__section agent-detail__controls"><h3>Control</h3>${controls}</section>` : ''}
+
+    <section class="agent-detail__section agent-detail__logs-section">
+      <h3>Recent logs</h3>
+      <div class="agent-detail__logs">
+        ${logs.length ? logs.slice(-80).map(entry => renderDetailLogLine(entry)).join('') : '<p class="agent-detail__empty">No logs captured yet.</p>'}
+      </div>
+    </section>
+
+    <section class="agent-detail__section">
+      <h3>Modified files</h3>
+      <ul class="agent-detail__files">${files}</ul>
+    </section>
+  `
+}
+
+function getAgentLogsForDetail(agent: Agent): LogEntry[] {
+  if (agent.logs.length > 0) return agent.logs
+  if (mode === 'demo') {
+    const now = new Date()
+    return DEMO_LOGS
+      .filter(d => d.agentId === agent.id)
+      .map(d => ({ ...d.entry, timestamp: now }))
+  }
+  return []
+}
+
+function renderDetailLogLine(entry: LogEntry): string {
+  const time = entry.timestamp.toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  return `
+    <div class="agent-detail-log agent-detail-log--${entry.level}">
+      <time>${time}</time>
+      <span>${entry.level}</span>
+      <p>${esc(entry.message)}</p>
+    </div>
+  `
+}
+
+function shouldIgnoreCardOpen(target: HTMLElement): boolean {
+  return Boolean(target.closest('.agent-controls, button, input, textarea, select, details, summary, a'))
+}
+
+function openAgentDetail(agentId: string): void {
+  if (!agentId) return
+  selectedAgentId = agentId
+  render()
+}
+
+function closeAgentDetail(): void {
+  if (!selectedAgentId) return
+  selectedAgentId = null
+  render()
 }
 
 function esc(s: string): string {
@@ -431,48 +543,76 @@ document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submi
   }
 })
 
-// ── Agent controls ───────────────────────────────────────────────────────────
+// ── Agent controls + inspector ───────────────────────────────────────────────
 
-document.querySelector<HTMLDivElement>('#agent-grid')?.addEventListener('click', (e: MouseEvent) => {
+document.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as HTMLElement
-  const btn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
-  if (!btn || btn.disabled) return
 
-  const card = btn.closest<HTMLElement>('[data-agent-id]')
-  if (!card) return
-  const agentId = card.dataset['agentId'] ?? ''
-
-  if (btn.classList.contains('agent-control-send')) {
-    const textarea = card.querySelector<HTMLTextAreaElement>('.agent-controls__input')
-    const enterCb  = card.querySelector<HTMLInputElement>('.agent-controls__enter')
-    const text = textarea?.value ?? ''
-    if (!text.trim()) return
-
-    btn.disabled = true
-    fetch(`${API_BASE}/api/agents/${agentId}/input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, enter: enterCb?.checked ?? true }),
-      signal: AbortSignal.timeout(5000),
-    })
-      .then(res => { if (res.ok && textarea) textarea.value = '' })
-      .catch(() => { /* network error — user can retry */ })
-      .finally(() => { btn.disabled = false })
-
-  } else if (btn.classList.contains('agent-control-stop')) {
-    const agentName = card.dataset['agentName'] ?? agentId
-    if (!confirm(`Stop "${agentName}"?\n\nThis will kill the tmux session.`)) return
-
-    btn.disabled = true
-    fetch(`${API_BASE}/api/agents/${agentId}/stop`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(5000),
-    })
-      .catch(() => { /* network error */ })
-      .finally(() => { btn.disabled = false })
+  if (target.closest('#agent-detail-backdrop, .agent-detail__close')) {
+    closeAgentDetail()
+    return
   }
+
+  const btn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
+  if (btn) {
+    if (btn.disabled) return
+
+    const card = btn.closest<HTMLElement>('[data-agent-id]')
+    if (!card) return
+    const agentId = card.dataset['agentId'] ?? ''
+
+    if (btn.classList.contains('agent-control-send')) {
+      const textarea = card.querySelector<HTMLTextAreaElement>('.agent-controls__input')
+      const enterCb  = card.querySelector<HTMLInputElement>('.agent-controls__enter')
+      const text = textarea?.value ?? ''
+      if (!text.trim()) return
+
+      btn.disabled = true
+      fetch(`${API_BASE}/api/agents/${agentId}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, enter: enterCb?.checked ?? true }),
+        signal: AbortSignal.timeout(5000),
+      })
+        .then(res => { if (res.ok && textarea) textarea.value = '' })
+        .catch(() => { /* network error — user can retry */ })
+        .finally(() => { btn.disabled = false })
+
+    } else if (btn.classList.contains('agent-control-stop')) {
+      const agentName = card.dataset['agentName'] ?? agentId
+      if (!confirm(`Stop "${agentName}"?\n\nThis will kill the tmux session.`)) return
+
+      btn.disabled = true
+      fetch(`${API_BASE}/api/agents/${agentId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(5000),
+      })
+        .catch(() => { /* network error */ })
+        .finally(() => { btn.disabled = false })
+    }
+    return
+  }
+
+  const card = target.closest<HTMLElement>('#agent-grid [data-agent-id]')
+  if (card && !shouldIgnoreCardOpen(target)) {
+    openAgentDetail(card.dataset['agentId'] ?? '')
+  }
+})
+
+document.querySelector<HTMLDivElement>('#agent-grid')?.addEventListener('keydown', (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement
+  const card = target.closest<HTMLElement>('[data-agent-id]')
+  if (!card || shouldIgnoreCardOpen(target)) return
+  if (e.key !== 'Enter' && e.key !== ' ') return
+
+  e.preventDefault()
+  openAgentDetail(card.dataset['agentId'] ?? '')
+})
+
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape') closeAgentDetail()
 })
 
 // ── Init ─────────────────────────────────────────────────────────────────────
