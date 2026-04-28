@@ -717,8 +717,6 @@ function renderTopologyGraph(agent: Agent): string {
           <span class="t-node__badge">${node.observed ? 'observed' : 'inferred'}</span>
           ${counter}
         </div>
-        <span class="t-node__shimmer" aria-hidden="true"></span>
-        <span class="t-node__scan" aria-hidden="true"></span>
       </div>`
   }
 

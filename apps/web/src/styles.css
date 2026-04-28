@@ -1095,14 +1095,12 @@ details ul li {
     radial-gradient(circle at 86% 100%, rgba(16, 185, 129, 0.10), transparent 32%),
     linear-gradient(180deg, rgba(20, 21, 23, 0.985), rgba(8, 9, 10, 0.985));
   box-shadow: 0 30px 110px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255,255,255,0.04);
-  transform: scale(0.985) translateY(1rem);
   opacity: 0;
-  transition: transform 0.24s cubic-bezier(.2,.8,.2,1), opacity 0.18s;
+  transition: opacity 0.16s ease-out;
   overflow: hidden;
 }
 
 .agent-detail-shell--open .agent-detail {
-  transform: scale(1) translateY(0);
   opacity: 1;
 }
 
@@ -1170,7 +1168,7 @@ details ul li {
   height: 0.42rem;
   border-radius: 999px;
   background: var(--emerald-light);
-  animation: pulse-dot 1.8s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16);
 }
 
 .inspector__meta {
@@ -1246,13 +1244,9 @@ details ul li {
   overflow: hidden;
 }
 
-.inspector__metric--live::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg, transparent, rgba(52,211,153,0.13), transparent);
-  transform: translateX(-100%);
-  animation: scanline 3s ease-in-out infinite;
+.inspector__metric--live {
+  border-color: var(--emerald-border);
+  background: linear-gradient(180deg, rgba(16,185,129,0.09), rgba(255,255,255,0.018));
 }
 
 .inspector__metric span {
@@ -1408,10 +1402,10 @@ details ul li {
 .topology-canvas::before {
   content: '';
   position: absolute;
-  inset: -30% -10%;
-  background: conic-gradient(from 180deg at 50% 50%, transparent, rgba(99,102,241,0.08), transparent, rgba(16,185,129,0.06), transparent);
-  animation: slow-rotate 18s linear infinite;
-  opacity: 0.75;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(99,102,241,0.08), transparent 44%);
+  opacity: 0.9;
 }
 
 .topology-canvas__board {
@@ -1425,9 +1419,8 @@ details ul li {
   position: absolute;
   left: 8%; right: 8%; top: 50%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.8), rgba(52,211,153,0.75), transparent);
-  box-shadow: 0 0 26px rgba(129,140,248,0.45);
-  animation: beam-flow 2.8s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.42), rgba(52,211,153,0.36), transparent);
+  box-shadow: 0 0 18px rgba(129,140,248,0.22);
 }
 
 .topology-canvas__grid {
@@ -1493,9 +1486,9 @@ details ul li {
   overflow: hidden;
 }
 
-.t-node--running,
-.t-node--agent {
-  animation: topologyPulse 2.4s ease-in-out infinite;
+.t-node--running {
+  border-color: var(--emerald-border);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(52, 211, 153, 0.12);
 }
 
 .t-node--agent {
@@ -1546,7 +1539,6 @@ details ul li {
   border-radius: 999px;
   background: var(--emerald-light);
   box-shadow: 0 0 13px rgba(52,211,153,0.5);
-  animation: pulse-dot 1.8s ease-in-out infinite;
 }
 
 .t-node__label {
@@ -1585,25 +1577,6 @@ details ul li {
   color: var(--text-3);
 }
 
-.t-node__shimmer,
-.t-node__scan {
-  position: absolute;
-  pointer-events: none;
-}
-.t-node__shimmer {
-  inset: 0;
-  background: linear-gradient(110deg, transparent 20%, rgba(255,255,255,0.085) 45%, transparent 70%);
-  transform: translateX(-120%);
-  animation: scanline 4.5s ease-in-out infinite;
-}
-.t-node__scan {
-  left: 0; right: 0; top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(52,211,153,0.75), transparent);
-  animation: node-scan 3.4s ease-in-out infinite;
-}
-.t-node--idle .t-node__shimmer,
-.t-node--idle .t-node__scan { opacity: 0.25; animation-duration: 7s; }
 
 .inspector__log-feed {
   max-height: calc(100vh - 20rem);
@@ -1675,32 +1648,6 @@ details ul li {
 }
 .inspector__control .agent-controls__input { min-height: 9rem; }
 .inspector__control .agent-controls__row { margin-top: 0.7rem; }
-
-@keyframes topologyPulse {
-  0%, 100% { box-shadow: 0 12px 34px rgba(0,0,0,0.26), 0 0 0 rgba(129, 140, 248, 0); }
-  50% { box-shadow: 0 12px 34px rgba(0,0,0,0.26), 0 0 28px rgba(129, 140, 248, 0.18); }
-}
-
-@keyframes scanline {
-  0%, 45% { transform: translateX(-120%); }
-  70%, 100% { transform: translateX(120%); }
-}
-
-@keyframes node-scan {
-  0% { transform: translateY(0); opacity: 0.15; }
-  50% { transform: translateY(5.5rem); opacity: 0.9; }
-  100% { transform: translateY(0); opacity: 0.15; }
-}
-
-@keyframes beam-flow {
-  0%, 100% { opacity: 0.28; transform: scaleX(0.92); }
-  50% { opacity: 0.9; transform: scaleX(1); }
-}
-
-@keyframes slow-rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
