@@ -138,7 +138,7 @@ function sanitizeText(raw: string, maxLen = 220): string {
 interface JsonlLine {
   role?: string
   content?: unknown
-  tool_calls?: Array<{ function?: { name?: string } }>
+  tool_calls?: Array<{ function?: { name?: string; arguments?: unknown } }>
   timestamp?: string
 }
 
@@ -271,12 +271,40 @@ function safeName(raw: string): string {
   return raw.replace(/[^\w .@-]/g, '').slice(0, 40).trim()
 }
 
+function normalizeSessions(raw: unknown): Record<string, SessionMeta> | null {
+  const out: Record<string, SessionMeta> = {}
+
+  const add = (candidate: unknown, fallbackId?: string): void => {
+    if (typeof candidate !== 'object' || candidate === null) return
+    const meta = candidate as SessionMeta
+    const sessionId = typeof meta.session_id === 'string' && meta.session_id
+      ? meta.session_id
+      : fallbackId
+    if (!sessionId) return
+    out[sessionId] = { ...meta, session_id: sessionId }
+  }
+
+  if (Array.isArray(raw)) {
+    raw.forEach(item => add(item))
+  } else if (typeof raw === 'object' && raw !== null) {
+    const obj = raw as Record<string, unknown>
+    const nested = obj['sessions']
+    if (Array.isArray(nested)) {
+      nested.forEach(item => add(item))
+    } else if (typeof nested === 'object' && nested !== null) {
+      for (const [id, item] of Object.entries(nested as Record<string, unknown>)) add(item, id)
+    } else {
+      for (const [id, item] of Object.entries(obj)) add(item, id)
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : null
+}
+
 function readSessionsJson(): Record<string, SessionMeta> | null {
   try {
     const text = readFileSync(SESSIONS_JSON, 'utf8')
-    const obj = JSON.parse(text) as unknown
-    if (typeof obj !== 'object' || obj === null) return null
-    return obj as Record<string, SessionMeta>
+    return normalizeSessions(JSON.parse(text) as unknown)
   } catch {
     return null
   }
@@ -288,6 +316,70 @@ function activeSessionCountFromFiles(): number | null {
   return Object.values(sessionsData)
     .filter(meta => typeof meta.session_id === 'string' && meta.session_id.length > 0)
     .length
+}
+
+const DEV_ACTIVITY_WINDOW_MS = 30 * 60 * 1000
+const MAX_DEV_LOGS = 12
+const MAX_DEV_FILES = 8
+const AGENTDECK_ROOT = '/root/github/agentdeck/'
+
+function safeToolName(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null
+  const safe = raw.replace(/[^a-zA-Z0-9_:-]/g, '').slice(0, 48)
+  return safe || null
+}
+
+function isSafeDevPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  if (!path || path.length > 180) return false
+  if (lower.includes('..')) return false
+  if (/(^|\/)\.(env|npmrc|pypirc|netrc)(\.|$)/i.test(path)) return false
+  if (/htpasswd|credential|password|passwd|secret|token|auth\.json|cookie|private[_-]?key/i.test(path)) return false
+  return /^(apps|packages|src|docs|scripts|tests|\.github)\//.test(path)
+    || /^(package(-lock)?\.json|tsconfig\.json|README\.md|LICENSE)$/.test(path)
+}
+
+function normalizeDevPath(raw: string): string | null {
+  let path = raw.trim().replace(/["'`),;]+$/g, '')
+  if (path.startsWith(AGENTDECK_ROOT)) path = path.slice(AGENTDECK_ROOT.length)
+  path = path.replace(/^\.\//, '')
+  return isSafeDevPath(path) ? path : null
+}
+
+function collectPathsFromText(text: string, out: Set<string>): void {
+  const patterns = [
+    /\/root\/github\/agentdeck\/[A-Za-z0-9._\/-]+/g,
+    /(?:apps|packages|src|docs|scripts|tests|\.github)\/[A-Za-z0-9._\/-]+/g,
+    /\b(?:package(?:-lock)?\.json|tsconfig\.json|README\.md|LICENSE)\b/g,
+  ]
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(text)) !== null) {
+      const safe = normalizeDevPath(match[0])
+      if (safe) out.add(safe)
+      if (out.size >= MAX_DEV_FILES) return
+    }
+  }
+}
+
+function collectPathsFromValue(value: unknown, out: Set<string>): void {
+  if (out.size >= MAX_DEV_FILES) return
+  if (typeof value === 'string') {
+    collectPathsFromText(value, out)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectPathsFromValue(item, out)
+    return
+  }
+  if (typeof value === 'object' && value !== null) {
+    for (const item of Object.values(value as Record<string, unknown>)) collectPathsFromValue(item, out)
+  }
+}
+
+function parseToolArguments(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw
+  try { return JSON.parse(raw) as unknown } catch { return raw }
 }
 
 /**
@@ -423,7 +515,7 @@ export function startHermesConnector(
     }
 
     // Retire stale hermes-session-* agents no longer in sessions.json
-    for (const [id, agent] of state) {
+    for (const [id, agent] of Array.from(state.entries())) {
       if (id.startsWith('hermes-session-') && !activeAgentIds.has(id)) {
         setStatus(agent, 'done')
         addLog(agent, 'info', 'Session ended or expired')
@@ -432,6 +524,85 @@ export function startHermesConnector(
         sessionMtimes.delete(sessionId)
       }
     }
+  }
+
+  // Aggregate a safe "what is Hermes doing for development?" cockpit card.
+  function syncDevelopmentAgent(): void {
+    const DEV_ID = 'hermes-development'
+    const sessionsData = readSessionsJson()
+    const metas = sessionsData ? Object.values(sessionsData) : []
+    const files = new Set<string>()
+    const logs: LogEntry[] = []
+    let latestMission = ''
+    let latestMissionTs = ''
+    let recentToolCalls = 0
+    let recentActivity = false
+    let startedAt: string | null = null
+
+    const pushDevLog = (timestamp: string, level: LogEntry['level'], message: string): void => {
+      logs.push({ timestamp, level, message: sanitizeText(message, 180), source: 'hermes-development' })
+    }
+
+    for (const meta of metas) {
+      if (typeof meta.session_id !== 'string' || !meta.session_id) continue
+      const jsonlPath = join(SESSIONS_DIR, `${meta.session_id}.jsonl`)
+      const mtime = getFileMtime(jsonlPath)
+      if (mtime > 0 && Date.now() - mtime <= DEV_ACTIVITY_WINDOW_MS) recentActivity = true
+      if (!startedAt || (typeof meta.created_at === 'string' && meta.created_at < startedAt)) {
+        startedAt = typeof meta.created_at === 'string' ? meta.created_at : startedAt
+      }
+
+      const entries = readSessionTailLines(meta.session_id)
+      const platform = typeof meta.platform === 'string' ? safeName(meta.platform) : 'unknown'
+      const mission = extractSessionTask(entries, platform)
+      const missionTs = entries.filter(e => e.role === 'user' && typeof e.timestamp === 'string').at(-1)?.timestamp
+        ?? meta.updated_at
+        ?? iso()
+      if (mission && (!latestMissionTs || missionTs > latestMissionTs)) {
+        latestMission = mission
+        latestMissionTs = missionTs
+      }
+
+      for (const e of entries) {
+        const timestamp = typeof e.timestamp === 'string' ? e.timestamp : meta.updated_at ?? iso()
+        if (e.role === 'user' && typeof e.content === 'string') {
+          const missionLine = sanitizeText(e.content, 120)
+          if (missionLine && missionLine !== '[context compacted]') pushDevLog(timestamp, 'info', `Mission: ${missionLine}`)
+        }
+
+        if (e.role === 'assistant' && Array.isArray(e.tool_calls)) {
+          recentToolCalls += e.tool_calls.length
+          const toolNames: string[] = []
+          for (const tc of e.tool_calls) {
+            const name = safeToolName(tc.function?.name)
+            if (name) toolNames.push(name)
+            const args = parseToolArguments(tc.function?.arguments)
+            collectPathsFromValue(args, files)
+          }
+          if (toolNames.length > 0) pushDevLog(timestamp, 'debug', `Tool: ${toolNames.slice(0, 5).join(', ')}`)
+        }
+      }
+    }
+
+    for (const path of Array.from(files)) pushDevLog(iso(), 'info', `Touched: ${path}`)
+
+    const task = latestMission || 'Watching Hermes development activity'
+    const status: AgentStatus = metas.length > 0 && recentActivity ? 'running' : metas.length > 0 ? 'waiting' : 'idle'
+    const dev = ensureAgent(DEV_ID, 'Hermes Development', status, task)
+    setStatus(dev, status)
+    dev.task = task
+    dev.startedAt = startedAt ?? dev.startedAt
+    dev.updatedAt = latestMissionTs || iso()
+    dev.logs = logs.slice(-MAX_DEV_LOGS)
+    dev.metrics.toolCallsCount = recentToolCalls
+    dev.metrics.filesModified = Array.from(files).slice(0, MAX_DEV_FILES)
+    dev.metrics.tokensUsed = metas.reduce((sum, meta) => {
+      const tokens = typeof meta.last_prompt_tokens === 'number' ? meta.last_prompt_tokens
+        : typeof meta.total_tokens === 'number' ? meta.total_tokens : 0
+      return sum + Math.max(0, tokens)
+    }, 0)
+    dev.metrics.durationMs = startedAt ? Math.max(0, Date.now() - new Date(startedAt).getTime()) : 0
+    broadcast({ type: 'agent:registered', agent: dev })
   }
 
   async function poll(): Promise<void> {
@@ -459,6 +630,7 @@ export function startHermesConnector(
       }
       // Still sync local session files even when dashboard is unreachable
       syncSessionAgents()
+      syncDevelopmentAgent()
       return
     }
 
@@ -506,8 +678,9 @@ export function startHermesConnector(
     if (sessions.task !== sessionsTask) { sessions.task = sessionsTask; sessions.updatedAt = iso() }
     addLog(sessions, 'info', `${sessionCount} active session${sessionCount !== 1 ? 's' : ''}`)
 
-    // ── per-session agents from local files ───────────────────────────────────
+    // ── per-session agents and aggregate development view from local files ─────
     syncSessionAgents()
+    syncDevelopmentAgent()
   }
 
   void poll()
