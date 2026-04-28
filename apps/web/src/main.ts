@@ -202,6 +202,28 @@ const DEMO_LOGS: Array<{ agentId: string; agentName: string; entry: Omit<LogEntr
   { agentId: 'reviewer',   agentName: 'Review Agent', entry: { level: 'warn',  message: 'No active diff yet — standing by' } },
 ]
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`
+  return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`
+}
+
+function timeAgo(date: Date): string {
+  const diff = Date.now() - date.getTime()
+  if (diff < 10_000) return 'just now'
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  return `${Math.floor(diff / 3_600_000)}h ago`
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 10_000)    return `${(n / 1000).toFixed(1)}k`
+  return n.toLocaleString()
+}
+
 // ── Render ───────────────────────────────────────────────────────────────────
 
 function preserveInputs(): Map<string, string> {
@@ -233,20 +255,30 @@ function render(): void {
   const filter    = document.querySelector<HTMLSelectElement>('#log-filter')
   if (!grid || !count || !statusBar || !logFeed || !filter) return
 
-  count.textContent = String(agents.length)
-
   const running = agents.filter(a => a.status === 'running').length
   const waiting = agents.filter(a => a.status === 'waiting').length
   const errors  = agents.filter(a => a.status === 'error').length
+  const totalTokens = agents.reduce((s, a) => s + a.metrics.tokensUsed, 0)
+
+  count.textContent = String(agents.length)
+
+  // Hero metrics
+  const heroAgents  = document.querySelector<HTMLElement>('#hero-agents')
+  const heroRunning = document.querySelector<HTMLElement>('#hero-running')
+  const heroTokens  = document.querySelector<HTMLElement>('#hero-tokens')
+  if (heroAgents)  heroAgents.textContent  = String(agents.length)
+  if (heroRunning) heroRunning.textContent = String(running)
+  if (heroTokens)  heroTokens.textContent  = fmtTokens(totalTokens)
+
   const connBadge =
     mode === 'live'         ? '<span class="conn-badge conn-badge--live">● live</span>' :
     mode === 'reconnecting' ? '<span class="conn-badge conn-badge--offline">● reconnecting…</span>' :
                               '<span class="conn-badge conn-badge--demo">○ demo</span>'
+
   statusBar.innerHTML =
-    `${connBadge}` +
-    `<span><strong>${running}</strong> running</span>` +
-    (waiting ? `<span><strong>${waiting}</strong> waiting</span>` : '') +
-    (errors  ? `<span><strong>${errors}</strong> error${errors > 1 ? 's' : ''}</span>` : '')
+    connBadge +
+    (waiting ? `<span class="status-count"><strong>${waiting}</strong> waiting</span>` : '') +
+    (errors  ? `<span class="status-count status-count--error"><strong>${errors}</strong> error${errors > 1 ? 's' : ''}</span>` : '')
 
   const saved = preserveInputs()
   grid.innerHTML = agents.map(renderAgentCard).join('')
@@ -272,30 +304,43 @@ function render(): void {
 }
 
 function renderAgentCard(agent: Agent): string {
-  const modified = agent.metrics.filesModified.length
-    ? agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')
-    : '<li>No file changes yet</li>'
+  const durationMs = agent.startedAt
+    ? Date.now() - agent.startedAt.getTime()
+    : agent.metrics.durationMs
+
+  const pulseDot = agent.status === 'running'
+    ? '<span class="agent-pulse" aria-hidden="true"></span>'
+    : ''
 
   const controls = mode === 'live' && agent.id.startsWith('tmux:')
     ? renderAgentControls(agent)
+    : ''
+
+  const filesSection = agent.metrics.filesModified.length > 0
+    ? `<details>
+        <summary>${agent.metrics.filesModified.length} modified file${agent.metrics.filesModified.length !== 1 ? 's' : ''}</summary>
+        <ul>${agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+      </details>`
     : ''
 
   return `
     <article class="agent-card agent-card--${agent.status}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}">
       <div class="agent-card__header">
         <h3>${esc(agent.name)}</h3>
-        <span class="status status--${agent.status}">${agent.status}</span>
+        <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
       </div>
+      <div class="agent-card__id">${esc(agent.id)}</div>
       <p class="agent-card__task">${esc(agent.task)}</p>
       <dl class="metrics">
-        <div><dt>Tokens</dt><dd>${agent.metrics.tokensUsed.toLocaleString()}</dd></div>
+        <div><dt>Tokens</dt><dd>${fmtTokens(agent.metrics.tokensUsed)}</dd></div>
         <div><dt>Tools</dt><dd>${agent.metrics.toolCallsCount}</dd></div>
         <div><dt>Files</dt><dd>${agent.metrics.filesModified.length}</dd></div>
       </dl>
-      <details>
-        <summary>Modified files</summary>
-        <ul>${modified}</ul>
-      </details>
+      <div class="agent-card__footer">
+        <span class="agent-card__meta">${durationMs > 0 ? formatDuration(durationMs) : '—'}</span>
+        <span class="agent-card__meta">${timeAgo(agent.updatedAt)}</span>
+      </div>
+      ${filesSection}
       ${controls}
     </article>
   `
@@ -317,12 +362,15 @@ function renderAgentControls(agent: Agent): string {
 }
 
 function renderLogLine({ agentName, entry }: { agentId: string; agentName: string; entry: LogEntry }): string {
+  const time = entry.timestamp.toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
   return `
     <div class="log-line log-line--${entry.level}">
-      <time>${entry.timestamp.toLocaleTimeString()}</time>
+      <time>${time}</time>
       <span class="log-line__agent">${esc(agentName)}</span>
       <span class="log-line__level">${entry.level}</span>
-      <span>${esc(entry.message)}</span>
+      <span class="log-line__msg">${esc(entry.message)}</span>
     </div>
   `
 }

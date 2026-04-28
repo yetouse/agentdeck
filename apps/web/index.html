@@ -3,19 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Real-time web cockpit for AI coding agents" />
+    <meta name="description" content="Real-time web cockpit for supervising AI coding agents" />
     <title>AgentDeck</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="app">
       <header class="topbar">
         <div class="topbar__brand">
           <svg class="topbar__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect x="1" y="1" width="6" height="6" rx="1" fill="#6b7ef8"/>
-            <rect x="9" y="1" width="6" height="6" rx="1" fill="#34d399"/>
-            <rect x="1" y="9" width="6" height="6" rx="1" fill="#fbbf24"/>
-            <rect x="9" y="9" width="6" height="6" rx="1" fill="#6b7ef8" opacity="0.4"/>
+            <rect x="1" y="1" width="6" height="6" rx="1.2" fill="#6366f1"/>
+            <rect x="9" y="1" width="6" height="6" rx="1.2" fill="#10b981"/>
+            <rect x="1" y="9" width="6" height="6" rx="1.2" fill="#f59e0b"/>
+            <rect x="9" y="9" width="6" height="6" rx="1.2" fill="#6366f1" opacity="0.35"/>
           </svg>
           <span class="topbar__name">AgentDeck</span>
           <span class="topbar__version">v0.1</span>
@@ -23,31 +26,73 @@
         <div id="status-bar" class="topbar__statusbar"></div>
       </header>
 
+      <div class="command-center">
+        <div class="command-center__left">
+          <span class="command-center__eyebrow">Local AI operations deck</span>
+          <h1 class="command-center__title">Agent Supervision</h1>
+          <p class="command-center__subtitle">Monitor, direct, and coordinate your AI coding agents in real time</p>
+        </div>
+        <div class="command-center__metrics">
+          <div class="cc-metric">
+            <span id="hero-agents" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">Agents</span>
+          </div>
+          <div class="cc-metric cc-metric--running">
+            <span id="hero-running" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">Running</span>
+          </div>
+          <div class="cc-metric">
+            <span id="hero-tokens" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">Tokens</span>
+          </div>
+        </div>
+      </div>
+
       <main class="cockpit">
         <section class="cockpit__panel" id="panel-agents">
           <div class="panel__header">
-            <h2 class="panel__title">Agents</h2>
-            <span id="agent-count" class="panel__badge">0</span>
+            <h2 class="panel__title">
+              Agents
+              <span id="agent-count" class="panel__badge">0</span>
+            </h2>
           </div>
-          <form id="launch-form" class="launch-form" autocomplete="off">
-            <div class="launch-form__fields">
-              <input id="launch-task" type="text" class="launch-form__input launch-form__input--task"
-                placeholder="Task description…" maxlength="2000" required aria-label="Task" />
-              <input id="launch-name" type="text" class="launch-form__input"
-                placeholder="Name (optional)" maxlength="64" aria-label="Session name" />
-              <input id="launch-cwd" type="text" class="launch-form__input"
-                placeholder="Working directory (optional)" aria-label="Working directory" />
-              <button type="submit" class="launch-form__btn">Launch Claude</button>
-            </div>
-            <p id="launch-status" class="launch-form__status" role="status" aria-live="polite"></p>
-          </form>
+
+          <div class="launch-zone">
+            <form id="launch-form" class="launch-form" autocomplete="off">
+              <div class="launch-zone__header">
+                <span class="launch-zone__eyebrow">New session</span>
+                <h3 class="launch-zone__title">Launch Claude Code into tmux</h3>
+              </div>
+              <div class="launch-form__commander">
+                <span class="launch-form__prompt" aria-hidden="true">›</span>
+                <input id="launch-task" type="text" class="launch-form__input launch-form__input--task"
+                  placeholder="Describe what the agent should do…" maxlength="2000" required aria-label="Task" />
+              </div>
+              <div class="launch-form__secondary">
+                <input id="launch-name" type="text" class="launch-form__input"
+                  placeholder="Session name" maxlength="64" aria-label="Session name" />
+                <input id="launch-cwd" type="text" class="launch-form__input"
+                  placeholder="Working directory" aria-label="Working directory" />
+                <button type="submit" class="launch-form__btn">
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+                    <path d="M1.5 5.5H9.5M9.5 5.5L6.5 2.5M9.5 5.5L6.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  Launch
+                </button>
+              </div>
+              <p id="launch-status" class="launch-form__status" role="status" aria-live="polite"></p>
+            </form>
+          </div>
 
           <div id="agent-grid" class="agent-grid"></div>
         </section>
 
         <section class="cockpit__panel" id="panel-logs">
           <div class="panel__header">
-            <h2 class="panel__title">Live Logs</h2>
+            <h2 class="panel__title">
+              Event Stream
+              <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
+            </h2>
             <select id="log-filter" class="panel__select">
               <option value="all">All agents</option>
             </select>
