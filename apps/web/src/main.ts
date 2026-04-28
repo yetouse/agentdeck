@@ -7,10 +7,15 @@ const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? ''
 
 // ── State ────────────────────────────────────────────────────────────────────
 
+type LogStreamEntry = { agentId: string; agentName: string; entry: LogEntry }
+type TabId = 'topology' | 'activity' | 'files' | 'control'
+
 let agents: Agent[] = []
-let liveLogs: Array<{ agentId: string; agentName: string; entry: LogEntry }> = []
+let liveLogs: LogStreamEntry[] = []
 let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
 let selectedAgentId: string | null = null
+let selectedTab: TabId = 'topology'
+let activityScope: 'this' | 'all' = 'this'
 
 // ── Wire types (ISO strings from JSON) ───────────────────────────────────────
 
@@ -217,12 +222,12 @@ function makeDemoTopology(rootId: string, rootLabel: string): Topology {
     updatedAt: new Date(),
     nodes: [
       { id: rootId, label: rootLabel, kind: 'agent', status: 'running', observed: true, count: 27 },
-      { id: 'ws:implementation', label: 'Implementation', kind: 'workstream', status: 'running', observed: false, count: 12 },
-      { id: 'ws:verification', label: 'Verification', kind: 'workstream', status: 'running', observed: false, count: 8 },
-      { id: 'ws:deployment', label: 'Deployment', kind: 'workstream', status: 'idle', observed: false, count: 3 },
-      { id: 'tool:implementation:patch', label: 'patch', kind: 'tool', status: 'idle', observed: true, count: 5 },
-      { id: 'tool:verification:npm', label: 'npm', kind: 'tool', status: 'idle', observed: true, count: 4 },
-      { id: 'file:apps/web/src/main.ts', label: 'apps/web/src/main.ts', kind: 'file', status: 'idle', observed: true },
+      { id: 'ws:implementation', label: 'Implementation', kind: 'workstream', status: 'running', observed: false, count: 12, detail: 'patches in flight' },
+      { id: 'ws:verification', label: 'Verification', kind: 'workstream', status: 'running', observed: false, count: 8, detail: 'typecheck pending' },
+      { id: 'ws:deployment', label: 'Deployment', kind: 'workstream', status: 'idle', observed: false, count: 3, detail: 'queued' },
+      { id: 'tool:implementation:patch', label: 'patch', kind: 'tool', status: 'running', observed: true, count: 5, detail: 'apply diff' },
+      { id: 'tool:verification:npm', label: 'npm', kind: 'tool', status: 'idle', observed: true, count: 4, detail: 'run typecheck' },
+      { id: 'file:apps/web/src/main.ts', label: 'apps/web/src/main.ts', kind: 'file', status: 'running', observed: true, detail: 'edited' },
     ],
     edges: [
       { from: rootId, to: 'ws:implementation' },
@@ -265,6 +270,25 @@ function fmtTokens(n: number): string {
   return n.toLocaleString()
 }
 
+function truncate(s: string, n: number): string {
+  if (s.length <= n) return s
+  return s.slice(0, Math.max(1, n - 1)) + '…'
+}
+
+function isInactive(status: AgentStatus): boolean {
+  return status === 'done' || status === 'error'
+}
+
+function canControlAgent(agent: Agent): boolean {
+  return mode === 'live' && agent.id.startsWith('tmux:')
+}
+
+function visibleLogStream(): LogStreamEntry[] {
+  if (mode === 'live' || mode === 'reconnecting') return liveLogs
+  const now = new Date()
+  return DEMO_LOGS.map(d => ({ agentId: d.agentId, agentName: d.agentName, entry: { ...d.entry, timestamp: now } }))
+}
+
 // ── Render ───────────────────────────────────────────────────────────────────
 
 function preserveInputs(): Map<string, string> {
@@ -292,9 +316,7 @@ function render(): void {
   const grid      = document.querySelector<HTMLDivElement>('#agent-grid')
   const count     = document.querySelector<HTMLSpanElement>('#agent-count')
   const statusBar = document.querySelector<HTMLDivElement>('#status-bar')
-  const logFeed   = document.querySelector<HTMLDivElement>('#log-feed')
-  const filter    = document.querySelector<HTMLSelectElement>('#log-filter')
-  if (!grid || !count || !statusBar || !logFeed || !filter) return
+  if (!grid || !count || !statusBar) return
 
   const running = agents.filter(a => a.status === 'running').length
   const waiting = agents.filter(a => a.status === 'waiting').length
@@ -303,7 +325,6 @@ function render(): void {
 
   count.textContent = String(agents.length)
 
-  // Hero metrics
   const heroAgents  = document.querySelector<HTMLElement>('#hero-agents')
   const heroRunning = document.querySelector<HTMLElement>('#hero-running')
   const heroTokens  = document.querySelector<HTMLElement>('#hero-tokens')
@@ -325,23 +346,7 @@ function render(): void {
   grid.innerHTML = agents.map(renderAgentCard).join('')
   restoreInputs(saved)
 
-  const prev = filter.value
-  filter.innerHTML = '<option value="all">All agents</option>' +
-    agents.map(a => `<option value="${esc(a.id)}"${a.id === prev ? ' selected' : ''}>${esc(a.name)}</option>`).join('')
-
-  const now = new Date()
-  const source: Array<{ agentId: string; agentName: string; entry: LogEntry }> =
-    mode === 'live' || mode === 'reconnecting'
-      ? liveLogs
-      : DEMO_LOGS.map(d => ({ ...d, entry: { ...d.entry, timestamp: now } }))
-
-  const visible = filter.value === 'all'
-    ? source
-    : source.filter(l => l.agentId === filter.value)
-
-  const atBottom = logFeed.scrollHeight - logFeed.scrollTop <= logFeed.clientHeight + 40
-  logFeed.innerHTML = visible.slice(-200).map(renderLogLine).join('')
-  if (atBottom) logFeed.scrollTop = logFeed.scrollHeight
+  renderEventTicker()
 
   if (selectedAgentId && !agents.some(a => a.id === selectedAgentId)) {
     selectedAgentId = null
@@ -358,9 +363,7 @@ function renderAgentCard(agent: Agent): string {
     ? '<span class="agent-pulse" aria-hidden="true"></span>'
     : ''
 
-  const controls = mode === 'live' && agent.id.startsWith('tmux:')
-    ? renderAgentControls(agent)
-    : ''
+  const controls = canControlAgent(agent) ? renderAgentControls(agent) : ''
 
   const filesSection = agent.metrics.filesModified.length > 0
     ? `<details>
@@ -393,8 +396,7 @@ function renderAgentCard(agent: Agent): string {
 }
 
 function renderAgentControls(agent: Agent): string {
-  const inactive = agent.status === 'done' || agent.status === 'error'
-  const dis = inactive ? ' disabled' : ''
+  const dis = isInactive(agent.status) ? ' disabled' : ''
   return `
     <div class="agent-controls">
       <textarea class="agent-controls__input" rows="2" placeholder="Send input to agent…"${dis}></textarea>
@@ -407,19 +409,34 @@ function renderAgentControls(agent: Agent): string {
   `
 }
 
-function renderLogLine({ agentName, entry }: { agentId: string; agentName: string; entry: LogEntry }): string {
-  const time = entry.timestamp.toLocaleTimeString('en', {
-    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
-  })
-  return `
-    <div class="log-line log-line--${entry.level}">
-      <time>${time}</time>
-      <span class="log-line__agent">${esc(agentName)}</span>
-      <span class="log-line__level">${entry.level}</span>
-      <span class="log-line__msg">${esc(entry.message)}</span>
-    </div>
-  `
+// ── Event ticker (compact dashboard strip) ───────────────────────────────────
+
+function renderEventTicker(): void {
+  const feed = document.querySelector<HTMLDivElement>('#event-ticker-feed')
+  if (!feed) return
+
+  const stream = visibleLogStream()
+  const recent = stream.slice(-6).reverse()
+
+  if (recent.length === 0) {
+    feed.innerHTML = '<span class="event-ticker__empty">Waiting for the first signal…</span>'
+    return
+  }
+
+  feed.innerHTML = recent.map(({ agentId, agentName, entry }) => {
+    const time = entry.timestamp.toLocaleTimeString('en', {
+      hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+    return `
+      <button type="button" class="event-ticker__line event-ticker__line--${entry.level}" data-agent-id="${esc(agentId)}">
+        <span class="event-ticker__time">${time}</span>
+        <span class="event-ticker__agent">${esc(agentName)}</span>
+        <span class="event-ticker__msg">${esc(truncate(entry.message, 140))}</span>
+      </button>`
+  }).join('')
 }
+
+// ── Agent inspector (full-screen, tabbed) ────────────────────────────────────
 
 function renderAgentDetail(): void {
   const shell = document.querySelector<HTMLElement>('#agent-detail-shell')
@@ -434,154 +451,317 @@ function renderAgentDetail(): void {
     return
   }
 
-  const durationMs = agent.startedAt ? Date.now() - agent.startedAt.getTime() : agent.metrics.durationMs
-  const logs = getAgentLogsForDetail(agent)
-  const files = agent.metrics.filesModified.length
-    ? agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')
-    : '<li>No modified files yet</li>'
-  const controls = mode === 'live' && agent.id.startsWith('tmux:') ? renderAgentControls(agent) : ''
+  const tabs: TabId[] = ['topology', 'activity', 'files']
+  if (canControlAgent(agent)) tabs.push('control')
+  const activeTab: TabId = tabs.includes(selectedTab) ? selectedTab : 'topology'
 
   shell.classList.add('agent-detail-shell--open')
   shell.setAttribute('aria-hidden', 'false')
+
+  const saved = preserveInputs()
   content.innerHTML = `
-    <div class="agent-detail__header">
-      <div>
-        <span class="agent-detail__eyebrow">Agent inspector</span>
-        <h2 id="agent-detail-title">${esc(agent.name)}</h2>
+    ${renderInspectorHeader(agent)}
+    ${renderInspectorMetrics(agent)}
+    ${renderInspectorTabs(tabs, activeTab, agent)}
+    <div class="inspector__body">
+      ${renderInspectorTabContent(activeTab, agent)}
+    </div>
+  `
+  restoreInputs(saved)
+}
+
+function renderInspectorHeader(agent: Agent): string {
+  const pulseDot = agent.status === 'running' ? '<span class="agent-pulse" aria-hidden="true"></span>' : ''
+  const liveTag = agent.status === 'running'
+    ? '<span class="inspector__live"><span class="inspector__live-dot" aria-hidden="true"></span>LIVE</span>'
+    : ''
+  return `
+    <header class="inspector__header">
+      <div class="inspector__title-block">
+        <span class="inspector__eyebrow">Agent inspector</span>
+        <div class="inspector__title-row">
+          <h2 id="agent-detail-title">${esc(agent.name)}</h2>
+          ${liveTag}
+        </div>
+        <div class="inspector__meta">
+          <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
+          <code title="${esc(agent.id)}">${esc(agent.id)}</code>
+          <span class="inspector__meta-time">last update ${timeAgo(agent.updatedAt)}</span>
+        </div>
+        <p class="inspector__mission">${esc(agent.task)}</p>
       </div>
-      <button class="agent-detail__close" type="button" aria-label="Close agent detail">×</button>
-    </div>
+      <button class="inspector__close agent-detail__close" type="button" aria-label="Close agent detail">×</button>
+    </header>`
+}
 
-    <div class="agent-detail__status-row">
-      <span class="status status--${agent.status}">${agent.status === 'running' ? '<span class="agent-pulse" aria-hidden="true"></span>' : ''}${agent.status}</span>
-      <code>${esc(agent.id)}</code>
-    </div>
+function renderInspectorMetrics(agent: Agent): string {
+  const durationMs = agent.startedAt ? Date.now() - agent.startedAt.getTime() : agent.metrics.durationMs
+  const tiles: Array<[string, string, boolean]> = [
+    ['Duration', durationMs > 0 ? formatDuration(durationMs) : '—', agent.status === 'running'],
+    ['Updated', timeAgo(agent.updatedAt), false],
+    ['Tokens', fmtTokens(agent.metrics.tokensUsed), false],
+    ['Tool calls', String(agent.metrics.toolCallsCount), false],
+    ['Files', String(agent.metrics.filesModified.length), false],
+    ['Mode', mode, mode === 'live'],
+  ]
+  return `
+    <section class="inspector__metrics">
+      ${tiles.map(([label, value, live]) => `
+        <div class="inspector__metric${live ? ' inspector__metric--live' : ''}">
+          <span>${esc(label)}</span>
+          <strong>${esc(value)}</strong>
+        </div>
+      `).join('')}
+    </section>`
+}
 
-    <section class="agent-detail__section">
-      <h3>Mission</h3>
-      <p class="agent-detail__task">${esc(agent.task)}</p>
-    </section>
+function renderInspectorTabs(tabs: TabId[], active: TabId, agent: Agent): string {
+  const labels: Record<TabId, string> = {
+    topology: 'Topology',
+    activity: 'Event Stream',
+    files: 'Files',
+    control: 'Control',
+  }
+  const counts: Partial<Record<TabId, number>> = {
+    activity: agent.logs.length,
+    files: agent.metrics.filesModified.length,
+  }
+  return `
+    <nav class="inspector__tabs" role="tablist" aria-label="Agent inspector sections">
+      ${tabs.map(tab => {
+        const c = counts[tab]
+        return `
+          <button class="inspector__tab${tab === active ? ' inspector__tab--active' : ''}"
+            role="tab" aria-selected="${tab === active}"
+            data-tab="${tab}" type="button">
+            <span>${labels[tab]}</span>
+            ${typeof c === 'number' ? `<em>${c}</em>` : ''}
+          </button>`
+      }).join('')}
+    </nav>`
+}
 
-    <section class="agent-detail__metrics">
-      <div><span>Duration</span><strong>${durationMs > 0 ? formatDuration(durationMs) : '—'}</strong></div>
-      <div><span>Updated</span><strong>${timeAgo(agent.updatedAt)}</strong></div>
-      <div><span>Tokens</span><strong>${fmtTokens(agent.metrics.tokensUsed)}</strong></div>
-      <div><span>Tools</span><strong>${agent.metrics.toolCallsCount}</strong></div>
-      <div><span>Files</span><strong>${agent.metrics.filesModified.length}</strong></div>
-      <div><span>Mode</span><strong>${mode}</strong></div>
-    </section>
+function renderInspectorTabContent(tab: TabId, agent: Agent): string {
+  switch (tab) {
+    case 'topology': return renderTopologyTab(agent)
+    case 'activity': return renderActivityTab(agent)
+    case 'files':    return renderFilesTab(agent)
+    case 'control':  return renderControlTab(agent)
+  }
+}
 
-    ${controls ? `<section class="agent-detail__section agent-detail__controls"><h3>Control</h3>${controls}</section>` : ''}
-
-    <section class="agent-detail__section agent-detail__topology-section">
-      <div class="agent-detail__section-title-row">
-        <h3>Agent topology</h3>
-        <span>${agent.topology ? `updated ${timeAgo(agent.topology.updatedAt)}` : 'waiting for activity'}</span>
+function renderTopologyTab(agent: Agent): string {
+  return `
+    <section class="inspector__panel inspector__panel--topology">
+      <div class="inspector__panel-head">
+        <div>
+          <h3>Agent topology</h3>
+          <p>${agent.topology
+              ? `${agent.topology.nodes.length} node${agent.topology.nodes.length === 1 ? '' : 's'} · ${agent.topology.edges.length} link${agent.topology.edges.length === 1 ? '' : 's'} · refreshed ${timeAgo(agent.topology.updatedAt)}`
+              : 'Waiting for activity from Hermes…'}</p>
+        </div>
+        <div class="inspector__legend">
+          <span><i class="legend-dot legend-dot--observed"></i> observed</span>
+          <span><i class="legend-dot legend-dot--inferred"></i> inferred</span>
+        </div>
       </div>
       ${renderTopologyGraph(agent)}
-    </section>
+    </section>`
+}
 
-    <section class="agent-detail__section agent-detail__logs-section">
-      <h3>Recent logs</h3>
-      <div class="agent-detail__logs">
-        ${logs.length ? logs.slice(-80).map(entry => renderDetailLogLine(entry)).join('') : '<p class="agent-detail__empty">No logs captured yet.</p>'}
+function renderActivityTab(agent: Agent): string {
+  const stream = visibleLogStream()
+  const filtered = activityScope === 'all'
+    ? stream
+    : stream.filter(l => l.agentId === agent.id)
+  const visible = filtered.slice(-200)
+
+  return `
+    <section class="inspector__panel inspector__panel--activity">
+      <div class="inspector__panel-head">
+        <div>
+          <h3>Event stream</h3>
+          <p>${visible.length} of ${filtered.length} event${filtered.length === 1 ? '' : 's'}${activityScope === 'all' ? ' across all agents' : ` from ${esc(agent.name)}`}</p>
+        </div>
+        <div class="inspector__panel-controls">
+          <select id="activity-scope" class="panel__select" aria-label="Scope">
+            <option value="this"${activityScope === 'this' ? ' selected' : ''}>This agent</option>
+            <option value="all"${activityScope === 'all' ? ' selected' : ''}>All agents</option>
+          </select>
+        </div>
       </div>
-    </section>
+      <div class="inspector__log-feed" role="log" aria-live="polite">
+        ${visible.length
+          ? visible.map(l => renderActivityLogLine(l, agent.id)).join('')
+          : '<p class="agent-detail__empty">No events captured yet.</p>'}
+      </div>
+    </section>`
+}
 
-    <section class="agent-detail__section">
-      <h3>Modified files</h3>
-      <ul class="agent-detail__files">${files}</ul>
-    </section>
-  `
+function renderActivityLogLine(l: LogStreamEntry, currentAgentId: string): string {
+  const time = l.entry.timestamp.toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  const own = l.agentId === currentAgentId ? ' inspector__log--own' : ''
+  return `
+    <div class="inspector__log inspector__log--${l.entry.level}${own}">
+      <time>${time}</time>
+      <span class="inspector__log-agent">${esc(l.agentName)}</span>
+      <span class="inspector__log-level">${l.entry.level}</span>
+      <p class="inspector__log-msg">${esc(l.entry.message)}</p>
+    </div>`
+}
+
+function renderFilesTab(agent: Agent): string {
+  const files = agent.metrics.filesModified
+  return `
+    <section class="inspector__panel inspector__panel--files">
+      <div class="inspector__panel-head">
+        <div>
+          <h3>Modified files</h3>
+          <p>${files.length} file${files.length === 1 ? '' : 's'} touched in this session.</p>
+        </div>
+      </div>
+      ${files.length
+        ? `<ul class="inspector__files">${files.map(f => `<li><span class="inspector__file-icon" aria-hidden="true"></span><code>${esc(f)}</code></li>`).join('')}</ul>`
+        : '<p class="agent-detail__empty">No files modified yet.</p>'}
+    </section>`
+}
+
+function renderControlTab(agent: Agent): string {
+  const inactive = isInactive(agent.status)
+  const dis = inactive ? ' disabled' : ''
+  return `
+    <section class="inspector__panel inspector__panel--control">
+      <div class="inspector__panel-head">
+        <div>
+          <h3>Control</h3>
+          <p>Send instructions or terminate the tmux session.</p>
+        </div>
+      </div>
+      <div class="inspector__control" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}">
+        <textarea class="agent-controls__input" rows="6" placeholder="Send input to ${esc(agent.name)}…"${dis}></textarea>
+        <div class="agent-controls__row">
+          <label><input type="checkbox" class="agent-controls__enter" checked> Send Enter</label>
+          <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>Send</button>
+          <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>Stop session</button>
+        </div>
+        ${inactive ? '<p class="agent-detail__empty">This session is no longer active.</p>' : ''}
+      </div>
+    </section>`
+}
+
+// ── Topology graph (dynamic, alive) ──────────────────────────────────────────
+
+function deriveNodeActivity(node: TopologyNode, agent: Agent): string {
+  if (node.detail) return truncate(node.detail, 56)
+  if (node.kind === 'agent') {
+    const last = agent.logs.length ? agent.logs[agent.logs.length - 1] : undefined
+    if (last) return truncate(last.message, 56)
+    if (agent.task) return truncate(agent.task, 56)
+    return 'Awaiting activity'
+  }
+  if (typeof node.count === 'number' && node.count > 0) {
+    return `${node.count} signal${node.count === 1 ? '' : 's'}`
+  }
+  if (node.kind === 'workstream') return 'Standing by'
+  if (node.kind === 'tool')       return 'Idle'
+  if (node.kind === 'file')       return 'Touched'
+  return 'Awaiting'
 }
 
 function renderTopologyGraph(agent: Agent): string {
   const topology = agent.topology
   if (!topology || topology.nodes.length === 0) {
-    return '<p class="agent-detail__empty">Topology will appear as soon as Hermes emits tool activity.</p>'
+    return `
+      <div class="topology-canvas topology-canvas--empty">
+        <div class="topology-canvas__placeholder">
+          <span class="agent-pulse" aria-hidden="true"></span>
+          Topology will appear once Hermes emits tool activity.
+        </div>
+      </div>`
   }
 
   const root = topology.nodes.find(n => n.kind === 'agent') ?? topology.nodes[0]
   const workstreams = topology.nodes.filter(n => n.kind === 'workstream')
-  const observed = topology.nodes.filter(n => n.kind === 'tool' || n.kind === 'file' || n.kind === 'event').slice(0, 14)
+  const observed = topology.nodes.filter(n => n.kind === 'tool' || n.kind === 'file' || n.kind === 'event').slice(0, 18)
+
   const edgesByTarget = new Map<string, TopologyEdge[]>()
-  for (const edge of topology.edges) {
-    const list = edgesByTarget.get(edge.to) ?? []
-    list.push(edge)
-    edgesByTarget.set(edge.to, list)
+  for (const e of topology.edges) {
+    const list = edgesByTarget.get(e.to) ?? []
+    list.push(e)
+    edgesByTarget.set(e.to, list)
   }
 
   const renderNode = (node: TopologyNode): string => {
-    const badge = node.observed ? 'Observed' : 'Inferred'
-    const count = typeof node.count === 'number' ? `<span class="topology-node__count">${node.count}</span>` : ''
-    const detail = node.detail ? `<small>${esc(node.detail)}</small>` : ''
-    const linked = edgesByTarget.has(node.id) ? ' topology-node--linked' : ''
+    const live = node.status === 'running'
+    const observedClass = node.observed ? ' t-node--observed' : ' t-node--inferred'
+    const linked = edgesByTarget.has(node.id) ? ' t-node--linked' : ''
+    const liveLabel = live ? 'LIVE' : (node.status === 'idle' || node.status === 'waiting' ? 'IDLE' : node.status.toUpperCase())
+    const activity = deriveNodeActivity(node, agent)
+    const counter = typeof node.count === 'number'
+      ? `<span class="t-node__counter" title="signals"><span class="t-node__counter-dot" aria-hidden="true"></span>${node.count}</span>`
+      : ''
+
     return `
-      <div class="topology-node topology-node--${node.kind} topology-node--${node.status}${node.observed ? ' topology-node--observed' : ' topology-node--inferred'}${linked}">
-        <div class="topology-node__topline">
-          <span>${esc(node.kind)}</span>
-          <em>${badge}</em>
+      <div class="t-node t-node--${node.kind} t-node--${node.status}${observedClass}${linked}" data-node-id="${esc(node.id)}">
+        <div class="t-node__top">
+          <span class="t-node__kind">${esc(node.kind)}</span>
+          <span class="t-node__live${live ? '' : ' t-node__live--idle'}">
+            ${live ? '<span class="t-node__dot" aria-hidden="true"></span>' : ''}${liveLabel}
+          </span>
         </div>
-        <strong title="${esc(node.label)}">${esc(node.label)}</strong>
-        ${detail}
-        ${count}
-      </div>
-    `
+        <strong class="t-node__label" title="${esc(node.label)}">${esc(node.label)}</strong>
+        <small class="t-node__activity">${esc(activity)}</small>
+        <div class="t-node__foot">
+          <span class="t-node__badge">${node.observed ? 'observed' : 'inferred'}</span>
+          ${counter}
+        </div>
+        <span class="t-node__shimmer" aria-hidden="true"></span>
+        <span class="t-node__scan" aria-hidden="true"></span>
+      </div>`
   }
 
   return `
-    <div class="agent-topology" aria-label="Agent topology graph">
-      <div class="agent-topology__legend">
-        <span><i class="legend-dot legend-dot--observed"></i> observed</span>
-        <span><i class="legend-dot legend-dot--inferred"></i> inferred workstreams</span>
-        <span class="agent-topology__edge-count">${topology.edges.length} links</span>
+    <div class="topology-canvas" aria-label="Agent topology graph">
+      <div class="topology-canvas__board">
+        <div class="topology-canvas__beam" aria-hidden="true"></div>
+        <div class="topology-canvas__grid">
+          <div class="topology-tier topology-tier--root">
+            <span class="topology-tier__label">Agent</span>
+            <div class="topology-tier__body">
+              ${root ? renderNode(root) : ''}
+            </div>
+          </div>
+          <div class="topology-tier topology-tier--workstreams">
+            <span class="topology-tier__label">Workstreams</span>
+            <div class="topology-tier__body">
+              ${workstreams.length
+                ? workstreams.map(renderNode).join('')
+                : '<p class="topology-tier__empty">No inferred workstreams yet.</p>'}
+            </div>
+          </div>
+          <div class="topology-tier topology-tier--observed">
+            <span class="topology-tier__label">Tools · Files · Events</span>
+            <div class="topology-tier__body">
+              ${observed.length
+                ? observed.map(renderNode).join('')
+                : '<p class="topology-tier__empty">No observed activity yet.</p>'}
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="agent-topology__graph">
-        <div class="topology-column topology-column--root">
-          ${root ? renderNode(root) : ''}
-        </div>
-        <div class="topology-column topology-column--workstreams">
-          ${workstreams.length ? workstreams.map(renderNode).join('') : '<p class="agent-detail__empty">No inferred workstreams yet.</p>'}
-        </div>
-        <div class="topology-column topology-column--observed">
-          ${observed.length ? observed.map(renderNode).join('') : '<p class="agent-detail__empty">No observed tools/files yet.</p>'}
-        </div>
-      </div>
-    </div>
-  `
-}
-
-function getAgentLogsForDetail(agent: Agent): LogEntry[] {
-  if (agent.logs.length > 0) return agent.logs
-  if (mode === 'demo') {
-    const now = new Date()
-    return DEMO_LOGS
-      .filter(d => d.agentId === agent.id)
-      .map(d => ({ ...d.entry, timestamp: now }))
-  }
-  return []
-}
-
-function renderDetailLogLine(entry: LogEntry): string {
-  const time = entry.timestamp.toLocaleTimeString('en', {
-    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
-  })
-  return `
-    <div class="agent-detail-log agent-detail-log--${entry.level}">
-      <time>${time}</time>
-      <span>${entry.level}</span>
-      <p>${esc(entry.message)}</p>
-    </div>
-  `
+    </div>`
 }
 
 function shouldIgnoreCardOpen(target: HTMLElement): boolean {
   return Boolean(target.closest('.agent-controls, button, input, textarea, select, details, summary, a'))
 }
 
-function openAgentDetail(agentId: string): void {
+function openAgentDetail(agentId: string, tab?: TabId): void {
   if (!agentId) return
   selectedAgentId = agentId
+  if (tab) selectedTab = tab
   render()
 }
 
@@ -647,31 +827,48 @@ document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submi
   }
 })
 
-// ── Agent controls + inspector ───────────────────────────────────────────────
+// ── Click delegation ─────────────────────────────────────────────────────────
 
 document.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as HTMLElement
 
-  if (target.closest('#agent-detail-backdrop, .agent-detail__close')) {
+  if (target.closest('#agent-detail-backdrop, .agent-detail__close, .inspector__close')) {
     closeAgentDetail()
     return
   }
 
-  const btn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
-  if (btn) {
-    if (btn.disabled) return
+  const tabBtn = target.closest<HTMLButtonElement>('.inspector__tab')
+  if (tabBtn) {
+    const tab = tabBtn.dataset['tab'] as TabId | undefined
+    if (tab && tab !== selectedTab) {
+      selectedTab = tab
+      renderAgentDetail()
+    }
+    return
+  }
 
-    const card = btn.closest<HTMLElement>('[data-agent-id]')
+  const tickerLine = target.closest<HTMLButtonElement>('.event-ticker__line')
+  if (tickerLine) {
+    const id = tickerLine.dataset['agentId'] ?? ''
+    if (id) openAgentDetail(id, 'activity')
+    return
+  }
+
+  const ctlBtn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
+  if (ctlBtn) {
+    if (ctlBtn.disabled) return
+
+    const card = ctlBtn.closest<HTMLElement>('[data-agent-id]')
     if (!card) return
     const agentId = card.dataset['agentId'] ?? ''
 
-    if (btn.classList.contains('agent-control-send')) {
+    if (ctlBtn.classList.contains('agent-control-send')) {
       const textarea = card.querySelector<HTMLTextAreaElement>('.agent-controls__input')
       const enterCb  = card.querySelector<HTMLInputElement>('.agent-controls__enter')
       const text = textarea?.value ?? ''
       if (!text.trim()) return
 
-      btn.disabled = true
+      ctlBtn.disabled = true
       fetch(`${API_BASE}/api/agents/${agentId}/input`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -680,13 +877,13 @@ document.addEventListener('click', (e: MouseEvent) => {
       })
         .then(res => { if (res.ok && textarea) textarea.value = '' })
         .catch(() => { /* network error — user can retry */ })
-        .finally(() => { btn.disabled = false })
+        .finally(() => { ctlBtn.disabled = false })
 
-    } else if (btn.classList.contains('agent-control-stop')) {
+    } else if (ctlBtn.classList.contains('agent-control-stop')) {
       const agentName = card.dataset['agentName'] ?? agentId
       if (!confirm(`Stop "${agentName}"?\n\nThis will kill the tmux session.`)) return
 
-      btn.disabled = true
+      ctlBtn.disabled = true
       fetch(`${API_BASE}/api/agents/${agentId}/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -694,7 +891,7 @@ document.addEventListener('click', (e: MouseEvent) => {
         signal: AbortSignal.timeout(5000),
       })
         .catch(() => { /* network error */ })
-        .finally(() => { btn.disabled = false })
+        .finally(() => { ctlBtn.disabled = false })
     }
     return
   }
@@ -719,10 +916,21 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Escape') closeAgentDetail()
 })
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('change', (e: Event) => {
+  const target = e.target as HTMLElement
+  if (target.id === 'activity-scope' && target instanceof HTMLSelectElement) {
+    activityScope = target.value === 'all' ? 'all' : 'this'
+    renderAgentDetail()
+  }
+})
 
-document.querySelector('#log-filter')?.addEventListener('change', render)
+// ── Init ─────────────────────────────────────────────────────────────────────
 
 agents = makeDemoAgents()
 render()
 connect()
+
+// Keep "time ago" / duration tickers fresh while the inspector is open.
+setInterval(() => {
+  if (selectedAgentId) renderAgentDetail()
+}, 5000)

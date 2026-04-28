@@ -55,6 +55,7 @@
               Agents
               <span id="agent-count" class="panel__badge">0</span>
             </h2>
+            <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
           </div>
 
           <div class="launch-zone">
@@ -87,17 +88,15 @@
           <div id="agent-grid" class="agent-grid"></div>
         </section>
 
-        <section class="cockpit__panel" id="panel-logs">
-          <div class="panel__header">
-            <h2 class="panel__title">
-              Event Stream
-              <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
-            </h2>
-            <select id="log-filter" class="panel__select">
-              <option value="all">All agents</option>
-            </select>
+        <section class="event-ticker" id="event-ticker" aria-label="Recent activity">
+          <div class="event-ticker__head">
+            <span class="event-ticker__label">
+              <span class="event-ticker__dot" aria-hidden="true"></span>
+              Recent activity
+            </span>
+            <span class="event-ticker__hint">Open any agent for the full Event Stream</span>
           </div>
-          <div id="log-feed" class="log-feed" role="log" aria-live="polite" aria-label="Agent log output"></div>
+          <div id="event-ticker-feed" class="event-ticker__feed" role="log" aria-live="polite"></div>
         </section>
       </main>
 
