@@ -1,9 +1,15 @@
 import { request } from 'node:http'
+import { openSync, closeSync, readSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Agent, AgentEvent, AgentStatus, LogEntry } from './types.js'
 
 const HERMES_URL = 'http://127.0.0.1:9119/api/status'
 const POLL_MS = 5_000
 const FETCH_TIMEOUT_MS = 4_000
+const SESSIONS_JSON = '/root/.hermes/sessions/sessions.json'
+const SESSIONS_DIR = '/root/.hermes/sessions'
+const TAIL_BYTES = 16_384
+const MAX_SESSION_LOGS = 12
 
 function iso(): string {
   return new Date().toISOString()
@@ -112,6 +118,178 @@ function inferGatewayStatus(safe: SafeHermesStatus): AgentStatus {
   return 'waiting'
 }
 
+// ── Hermes session file helpers ───────────────────────────────────────────────
+
+// Strip control chars, redact credential-like patterns, truncate.
+function sanitizeText(raw: string, maxLen = 220): string {
+  if (typeof raw !== 'string' || raw.length === 0) return ''
+  const s0 = raw.slice(0, 4_000)
+  if (s0.trimStart().startsWith('[CONTEXT COMPACTION')) return '[context compacted]'
+  let s = s0
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .replace(/(?:Bearer|Authorization|api[_-]?key|password|passwd|secret|token)\s*[=:]\s*\S+/gi, '[REDACTED]')
+    .replace(/ey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/g, '[REDACTED]')
+    .replace(/\b(?:sk|ghp|gho|ghu|ghs|ghr)-[A-Za-z0-9_-]{10,}/g, '[REDACTED]')
+    .replace(/[A-Za-z0-9+/]{60,}={0,2}/g, '[REDACTED]')
+  if (s.length > maxLen) s = s.slice(0, maxLen) + '…'
+  return s.trim()
+}
+
+interface JsonlLine {
+  role?: string
+  content?: unknown
+  tool_calls?: Array<{ function?: { name?: string } }>
+  timestamp?: string
+}
+
+interface SessionMeta {
+  session_id: string
+  display_name?: string
+  platform?: string
+  chat_type?: string
+  last_prompt_tokens?: unknown
+  total_tokens?: unknown
+  suspended?: unknown
+  resume_pending?: unknown
+  created_at?: string
+  updated_at?: string
+}
+
+function readFileTail(filePath: string): string {
+  try {
+    const { size } = statSync(filePath)
+    if (size === 0) return ''
+    if (size <= TAIL_BYTES) return readFileSync(filePath, 'utf8')
+    const fd = openSync(filePath, 'r')
+    try {
+      const buf = Buffer.alloc(TAIL_BYTES)
+      readSync(fd, buf, 0, TAIL_BYTES, size - TAIL_BYTES)
+      return buf.toString('utf8')
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return ''
+  }
+}
+
+function parseJsonlLine(line: string): JsonlLine | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  try {
+    if (trimmed.length > 40_000) {
+      const m = /"role"\s*:\s*"([^"]+)"/.exec(trimmed)
+      return m ? { role: m[1] } : null
+    }
+    const obj = JSON.parse(trimmed) as unknown
+    if (typeof obj !== 'object' || obj === null) return null
+    return obj as JsonlLine
+  } catch {
+    return null
+  }
+}
+
+function readSessionTailLines(sessionId: string): JsonlLine[] {
+  const tail = readFileTail(join(SESSIONS_DIR, `${sessionId}.jsonl`))
+  if (!tail) return []
+  const nl = tail.indexOf('\n')
+  const usable = nl >= 0 ? tail.slice(nl + 1) : tail
+  const result: JsonlLine[] = []
+  for (const line of usable.split('\n')) {
+    const parsed = parseJsonlLine(line)
+    if (parsed) result.push(parsed)
+  }
+  return result
+}
+
+function extractSessionTask(entries: JsonlLine[], platform: string): string {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i]
+    if (e.role !== 'user') continue
+    const c = typeof e.content === 'string' ? e.content : ''
+    if (!c || c.trimStart().startsWith('[CONTEXT COMPACTION')) continue
+    const sanitized = sanitizeText(c, 180)
+    if (sanitized && sanitized !== '[context compacted]') return sanitized
+  }
+  return `Active Hermes ${platform} session`
+}
+
+function buildSessionLogs(entries: JsonlLine[], ts: string): LogEntry[] {
+  const logs: LogEntry[] = []
+  for (const e of entries) {
+    if (logs.length >= MAX_SESSION_LOGS) break
+    const timestamp = typeof e.timestamp === 'string' ? e.timestamp : ts
+
+    if (e.role === 'user') {
+      const c = typeof e.content === 'string' ? e.content : ''
+      if (!c || c.trimStart().startsWith('[CONTEXT COMPACTION')) continue
+      const msg = sanitizeText(c, 140)
+      if (msg && msg !== '[context compacted]') {
+        logs.push({ timestamp, level: 'info', message: `User: ${msg}`, source: 'hermes-session' })
+      }
+    } else if (e.role === 'assistant' && Array.isArray(e.tool_calls) && e.tool_calls.length > 0) {
+      const names = e.tool_calls
+        .map(tc => (tc.function?.name ?? '').slice(0, 40))
+        .filter(n => n.length > 0)
+        .slice(0, 6)
+        .join(', ')
+      if (names) {
+        logs.push({ timestamp, level: 'info', message: `Tools: ${names}`, source: 'hermes-session' })
+      }
+    } else if (e.role === 'assistant' && typeof e.content === 'string' && e.content.length > 0) {
+      if (e.content.trimStart().startsWith('[CONTEXT COMPACTION')) continue
+      const msg = sanitizeText(e.content, 140)
+      if (msg && msg !== '[context compacted]') {
+        logs.push({ timestamp, level: 'debug', message: `Response: ${msg}`, source: 'hermes-session' })
+      }
+    } else if (e.role === 'tool' && typeof e.content === 'string' && e.content.length > 0) {
+      const msg = sanitizeText(e.content, 100)
+      if (msg) {
+        logs.push({ timestamp, level: 'debug', message: `Result: ${msg}`, source: 'hermes-session' })
+      }
+    }
+  }
+  return logs
+}
+
+function countToolCalls(entries: JsonlLine[]): number {
+  return entries.reduce((sum, e) => {
+    if (e.role === 'assistant' && Array.isArray(e.tool_calls)) return sum + e.tool_calls.length
+    return sum
+  }, 0)
+}
+
+function getFileMtime(filePath: string): number {
+  try { return statSync(filePath).mtimeMs } catch { return 0 }
+}
+
+function safeId(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)
+}
+
+function safeName(raw: string): string {
+  return raw.replace(/[^\w .@-]/g, '').slice(0, 40).trim()
+}
+
+function readSessionsJson(): Record<string, SessionMeta> | null {
+  try {
+    const text = readFileSync(SESSIONS_JSON, 'utf8')
+    const obj = JSON.parse(text) as unknown
+    if (typeof obj !== 'object' || obj === null) return null
+    return obj as Record<string, SessionMeta>
+  } catch {
+    return null
+  }
+}
+
+function activeSessionCountFromFiles(): number | null {
+  const sessionsData = readSessionsJson()
+  if (!sessionsData) return null
+  return Object.values(sessionsData)
+    .filter(meta => typeof meta.session_id === 'string' && meta.session_id.length > 0)
+    .length
+}
+
 /**
  * Poll Hermes dashboard at http://127.0.0.1:9119/api/status every 5 s and
  * expose each subsystem as an AgentDeck Agent. Returns a cleanup function.
@@ -124,6 +302,9 @@ export function startHermesConnector(
   const DASHBOARD_ID = 'hermes-dashboard'
   const SESSIONS_ID  = 'hermes-sessions'
   const ERROR_ID     = 'hermes-error'
+
+  // Track jsonl file mtimes per session_id to avoid log spam on every poll.
+  const sessionMtimes = new Map<string, number>()
 
   function registerAgent(id: string, name: string, status: AgentStatus, task: string): Agent {
     const agent: Agent = {
@@ -157,6 +338,102 @@ export function startHermesConnector(
     }
   }
 
+  // Sync one AgentDeck agent per active Hermes session from local files.
+  function syncSessionAgents(): void {
+    const sessionsData = readSessionsJson()
+    if (!sessionsData) return
+
+    const activeAgentIds = new Set<string>()
+
+    for (const [, meta] of Object.entries(sessionsData)) {
+      if (typeof meta.session_id !== 'string' || !meta.session_id) continue
+
+      const agentId = `hermes-session-${safeId(meta.session_id)}`
+      activeAgentIds.add(agentId)
+
+      const platform = typeof meta.platform === 'string' ? safeName(meta.platform) : 'unknown'
+      const chatType = typeof meta.chat_type === 'string' ? safeName(meta.chat_type) : ''
+      const displayName = typeof meta.display_name === 'string' && meta.display_name
+        ? safeName(meta.display_name) : platform
+      const agentName = `Hermes Session · ${displayName || platform}`
+
+      const suspended = meta.suspended === true || meta.resume_pending === true
+      const sessionStatus: AgentStatus = suspended ? 'waiting' : 'running'
+
+      const tokensUsed = typeof meta.last_prompt_tokens === 'number' && meta.last_prompt_tokens > 0
+        ? meta.last_prompt_tokens
+        : typeof meta.total_tokens === 'number' ? meta.total_tokens : 0
+
+      const jsonlPath = join(SESSIONS_DIR, `${meta.session_id}.jsonl`)
+      const currentMtime = getFileMtime(jsonlPath)
+      const prevMtime = sessionMtimes.get(meta.session_id) ?? -1
+      const contentChanged = currentMtime !== prevMtime
+
+      const existing = state.get(agentId)
+
+      if (!existing) {
+        // First time we see this session — read tail and register
+        const entries = readSessionTailLines(meta.session_id)
+        const now = iso()
+        const task = extractSessionTask(entries, platform)
+        const logs = buildSessionLogs(entries, now)
+        const toolCallsCount = countToolCalls(entries)
+
+        const agent = registerAgent(agentId, agentName, sessionStatus, task)
+        agent.startedAt = typeof meta.created_at === 'string' ? meta.created_at : agent.startedAt
+        agent.updatedAt = typeof meta.updated_at === 'string' ? meta.updated_at : now
+        agent.metrics.tokensUsed = tokensUsed
+        agent.metrics.toolCallsCount = toolCallsCount
+        agent.metrics.filesModified = [
+          `platform: ${platform}`,
+          ...(chatType ? [`chat_type: ${chatType}`] : []),
+          `session: ${meta.session_id.slice(0, 24)}`,
+          ...(meta.updated_at ? [`updated: ${meta.updated_at.slice(0, 19)}`] : []),
+        ]
+        agent.logs = logs
+        sessionMtimes.set(meta.session_id, currentMtime)
+        // Re-broadcast with complete data
+        broadcast({ type: 'agent:registered', agent })
+      } else {
+        // Agent already known — update status, metrics, and logs only if changed
+        setStatus(existing, sessionStatus)
+        existing.metrics.tokensUsed = tokensUsed
+
+        if (contentChanged) {
+          const entries = readSessionTailLines(meta.session_id)
+          const now = iso()
+          const task = extractSessionTask(entries, platform)
+          const newLogs = buildSessionLogs(entries, now)
+          const toolCallsCount = countToolCalls(entries)
+
+          existing.task = task
+          existing.logs = newLogs  // replace snapshot, no unbounded growth
+          existing.metrics.toolCallsCount = toolCallsCount
+          existing.metrics.filesModified = [
+            `platform: ${platform}`,
+            ...(chatType ? [`chat_type: ${chatType}`] : []),
+            `session: ${meta.session_id.slice(0, 24)}`,
+            ...(meta.updated_at ? [`updated: ${meta.updated_at.slice(0, 19)}`] : []),
+          ]
+          existing.updatedAt = typeof meta.updated_at === 'string' ? meta.updated_at : iso()
+          sessionMtimes.set(meta.session_id, currentMtime)
+          broadcast({ type: 'agent:registered', agent: existing })
+        }
+      }
+    }
+
+    // Retire stale hermes-session-* agents no longer in sessions.json
+    for (const [id, agent] of state) {
+      if (id.startsWith('hermes-session-') && !activeAgentIds.has(id)) {
+        setStatus(agent, 'done')
+        addLog(agent, 'info', 'Session ended or expired')
+        // Remove mtime tracking for this session
+        const sessionId = id.slice('hermes-session-'.length)
+        sessionMtimes.delete(sessionId)
+      }
+    }
+  }
+
   async function poll(): Promise<void> {
     let raw: unknown
     try {
@@ -180,6 +457,8 @@ export function startHermesConnector(
       } else {
         addLog(state.get(ERROR_ID)!, 'warn', `Poll failed: ${msg}`)
       }
+      // Still sync local session files even when dashboard is unreachable
+      syncSessionAgents()
       return
     }
 
@@ -217,7 +496,8 @@ export function startHermesConnector(
     addLog(dashboard, 'debug', `Status polled OK at ${safe.polled_at}`)
 
     // ── hermes-sessions ───────────────────────────────────────────────────────
-    const sessionCount = safe.active_sessions ?? 0
+    const fileSessionCount = activeSessionCountFromFiles()
+    const sessionCount = Math.max(safe.active_sessions ?? 0, fileSessionCount ?? 0)
     const sessionsStatus: AgentStatus = sessionCount > 0 ? 'running' : 'waiting'
     const sessionsTask = `Active sessions: ${sessionCount}`
     const sessions = ensureAgent(SESSIONS_ID, 'Hermes Sessions', sessionsStatus, sessionsTask)
@@ -225,6 +505,9 @@ export function startHermesConnector(
     sessions.metrics.filesModified = [`active sessions: ${sessionCount}`]
     if (sessions.task !== sessionsTask) { sessions.task = sessionsTask; sessions.updatedAt = iso() }
     addLog(sessions, 'info', `${sessionCount} active session${sessionCount !== 1 ? 's' : ''}`)
+
+    // ── per-session agents from local files ───────────────────────────────────
+    syncSessionAgents()
   }
 
   void poll()
