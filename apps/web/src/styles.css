@@ -705,6 +705,35 @@ body {
   letter-spacing: -0.02em;
 }
 
+.agent-card__latest {
+  margin: 0.2rem 0 0.55rem;
+  padding: 0.55rem 0.62rem;
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  border-radius: var(--r-sm);
+  background: rgba(16, 185, 129, 0.055);
+}
+
+.agent-card__latest span {
+  display: block;
+  margin-bottom: 0.16rem;
+  color: var(--emerald-light);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-card__latest p {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* Card footer: duration + last updated */
 .agent-card__footer {
   display: flex;
@@ -957,6 +986,188 @@ details ul li {
   border-radius: 50%;
   background: var(--emerald);
   flex-shrink: 0;
+}
+
+/* ── Dashboard view nav ───────────────────────────────────────────────────── */
+.dashboard-nav {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  padding: 0.22rem;
+  margin-left: auto;
+  margin-right: 0.6rem;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+}
+
+.dashboard-nav__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.34rem 0.65rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dashboard-nav__btn em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 0.35rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-4);
+  font-style: normal;
+  font-size: 0.66rem;
+  letter-spacing: 0;
+}
+
+.dashboard-nav__btn:hover {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dashboard-nav__btn:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+}
+
+.dashboard-nav__btn--active {
+  color: var(--indigo-light);
+  background: var(--indigo-muted);
+  border-color: var(--indigo-border);
+}
+
+.dashboard-nav__btn--active em {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+}
+
+/* ── Activity Now (primary live signals strip) ────────────────────────────── */
+.activity-now {
+  border-bottom: 1px solid var(--border-2);
+  background:
+    radial-gradient(circle at 6% 50%, rgba(16, 185, 129, 0.05), transparent 32%),
+    rgba(255, 255, 255, 0.012);
+  padding: 0.65rem 1.25rem 0.85rem;
+}
+
+.activity-now__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.55rem;
+}
+
+.activity-now__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--emerald-light);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.activity-now__hint {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-4);
+  letter-spacing: 0.04em;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-now__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--emerald-light);
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.45);
+  flex-shrink: 0;
+}
+
+.activity-now__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-now__item {
+  display: grid;
+  grid-template-columns: 4.4rem minmax(7rem, 11rem) 1fr;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 0.42rem 0.65rem;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.activity-now__item:hover,
+.activity-now__item:focus-visible {
+  border-color: var(--indigo-border);
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-1);
+  outline: none;
+}
+
+.activity-now__time { color: var(--text-4); white-space: nowrap; }
+.activity-now__agent {
+  color: var(--indigo-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-now__msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-now__item--warn  .activity-now__msg { color: var(--amber-light); }
+.activity-now__item--error .activity-now__msg { color: var(--red-light); }
+
+/* Empty state on the agent grid when a view has no agents */
+.agent-grid__empty {
+  grid-column: 1 / -1;
+  padding: 1.6rem 1rem;
+  color: var(--text-3);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  background: rgba(0, 0, 0, 0.18);
+  text-align: center;
 }
 
 /* ── Event ticker: compact dashboard activity ──────────────────────────────── */

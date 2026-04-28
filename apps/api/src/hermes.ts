@@ -878,7 +878,6 @@ export function startHermesConnector(
       recordWorkstream(acc, 'coordination')
     }
 
-    for (const path of Array.from(files)) pushDevLog(iso(), 'info', `Touched: ${path}`)
     for (const path of Array.from(files)) acc.files.add(path)
 
     const task = latestMission || 'Watching Hermes development activity'

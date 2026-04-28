@@ -33,17 +33,17 @@
           <p class="command-center__subtitle">Monitor, direct, and coordinate your AI coding agents in real time</p>
         </div>
         <div class="command-center__metrics">
-          <div class="cc-metric">
-            <span id="hero-agents" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">Agents</span>
-          </div>
           <div class="cc-metric cc-metric--running">
-            <span id="hero-running" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">Running</span>
+            <span id="hero-active" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">Active</span>
           </div>
           <div class="cc-metric">
-            <span id="hero-tokens" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">Tokens</span>
+            <span id="hero-system" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">System</span>
+          </div>
+          <div class="cc-metric">
+            <span id="hero-signals" class="cc-metric__value">0</span>
+            <span class="cc-metric__label">Signals</span>
           </div>
         </div>
       </div>
@@ -55,8 +55,21 @@
               Agents
               <span id="agent-count" class="panel__badge">0</span>
             </h2>
+            <nav class="dashboard-nav" role="tablist" aria-label="Dashboard view">
+              <button id="dashboard-view-now" class="dashboard-nav__btn dashboard-nav__btn--active" type="button" role="tab" aria-selected="true" data-view="now">
+                <span>Now</span><em>0</em>
+              </button>
+              <button id="dashboard-view-system" class="dashboard-nav__btn" type="button" role="tab" aria-selected="false" data-view="system">
+                <span>System</span><em>0</em>
+              </button>
+              <button id="dashboard-view-history" class="dashboard-nav__btn" type="button" role="tab" aria-selected="false" data-view="history">
+                <span>History</span><em>0</em>
+              </button>
+            </nav>
             <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
           </div>
+
+          <div id="activity-now-feed" class="activity-now"></div>
 
           <div class="launch-zone">
             <form id="launch-form" class="launch-form" autocomplete="off">
@@ -86,17 +99,6 @@
           </div>
 
           <div id="agent-grid" class="agent-grid"></div>
-        </section>
-
-        <section class="event-ticker" id="event-ticker" aria-label="Recent activity">
-          <div class="event-ticker__head">
-            <span class="event-ticker__label">
-              <span class="event-ticker__dot" aria-hidden="true"></span>
-              Recent activity
-            </span>
-            <span class="event-ticker__hint">Open any agent for the full Event Stream</span>
-          </div>
-          <div id="event-ticker-feed" class="event-ticker__feed" role="log" aria-live="polite"></div>
         </section>
       </main>
 

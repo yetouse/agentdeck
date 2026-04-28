@@ -9,6 +9,7 @@ const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? ''
 
 type LogStreamEntry = { agentId: string; agentName: string; entry: LogEntry }
 type TabId = 'topology' | 'activity' | 'files' | 'control'
+type DashboardView = 'now' | 'system' | 'history'
 
 let agents: Agent[] = []
 let liveLogs: LogStreamEntry[] = []
@@ -16,6 +17,7 @@ let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
 let selectedAgentId: string | null = null
 let selectedTab: TabId = 'topology'
 let activityScope: 'this' | 'all' = 'this'
+let dashboardView: DashboardView = 'now'
 
 // ── Wire types (ISO strings from JSON) ───────────────────────────────────────
 
@@ -120,13 +122,44 @@ function pushLog(agentId: string, agentName: string, entry: LogEntry): void {
   if (liveLogs.length > 500) liveLogs = liveLogs.slice(-500)
 }
 
+function logSignature(agentId: string, entry: LogEntry): string {
+  return `${agentId}|${entry.timestamp.getTime()}|${entry.level}|${entry.message}`
+}
+
+function redactPreviewText(raw: string): string {
+  return raw
+    .replace(/(?:Bearer|Authorization|api[_-]?key|password|passwd|secret|token)\s*[=:]\s*\S+/gi, '[REDACTED]')
+    .replace(/ey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/g, '[REDACTED]')
+    .replace(/\b(?:sk|ghp|gho|ghu|ghs|ghr)-[A-Za-z0-9_-]{10,}/g, '[REDACTED]')
+    .replace(/[A-Za-z0-9+/]{60,}={0,2}/g, '[REDACTED]')
+}
+
+function safeJSONPreview(value: unknown, max = 160): string {
+  let s: string
+  try { s = JSON.stringify(value) ?? '' }
+  catch { return '[unserializable]' }
+  s = redactPreviewText(s)
+  if (s.length <= max) return s
+  return s.slice(0, Math.max(1, max - 1)) + '…'
+}
+
 function applyEvent(ev: WireEvent): void {
   switch (ev.type) {
     case 'agent:registered': {
       const agent = fromWireAgent(ev.agent)
       const i = agents.findIndex(a => a.id === agent.id)
+      const prevSigs = i >= 0
+        ? new Set(agents[i]!.logs.map(e => logSignature(agent.id, e)))
+        : new Set<string>()
       if (i >= 0) agents[i] = agent
       else agents.push(agent)
+      // Hermes broadcasts updated snapshots rather than per-line agent:log events,
+      // so diff against the previous snapshot and surface new entries in liveLogs.
+      for (const entry of agent.logs) {
+        if (!prevSigs.has(logSignature(agent.id, entry))) {
+          pushLog(agent.id, agent.name, entry)
+        }
+      }
       break
     }
     case 'agent:status': {
@@ -147,7 +180,7 @@ function applyEvent(ev: WireEvent): void {
       pushLog(ev.agentId, agent?.name ?? ev.agentId, {
         timestamp: new Date(),
         level: 'debug',
-        message: `${ev.tool}(${JSON.stringify(ev.input)})`,
+        message: `${ev.tool}(${safeJSONPreview(ev.input)})`,
         source: 'tool:call',
       })
       break
@@ -157,7 +190,7 @@ function applyEvent(ev: WireEvent): void {
       pushLog(ev.agentId, agent?.name ?? ev.agentId, {
         timestamp: new Date(),
         level: 'debug',
-        message: `  ↳ ${ev.tool} → ${JSON.stringify(ev.output)}`,
+        message: `  ↳ ${ev.tool} → ${safeJSONPreview(ev.output)}`,
         source: 'tool:result',
       })
       break
@@ -289,6 +322,112 @@ function visibleLogStream(): LogStreamEntry[] {
   return DEMO_LOGS.map(d => ({ agentId: d.agentId, agentName: d.agentName, entry: { ...d.entry, timestamp: now } }))
 }
 
+// ── Agent classification ─────────────────────────────────────────────────────
+
+const SYSTEM_AGENT_IDS = new Set([
+  'hermes-gateway',
+  'hermes-dashboard',
+  'hermes-sessions',
+  'hermes-error',
+])
+
+const TMUX_SENTINEL_IDS = new Set([
+  'tmux:no-sessions',
+  'tmux:error',
+])
+
+const RECENT_ACTIVITY_WINDOW_MS = 10 * 60 * 1000
+const ACTIVITY_NOW_WINDOW_MS = 30 * 60 * 1000
+
+function isSystemAgent(agent: Agent): boolean {
+  if (SYSTEM_AGENT_IDS.has(agent.id)) return true
+  if (TMUX_SENTINEL_IDS.has(agent.id)) return true
+  return false
+}
+
+function isProjectAgent(agent: Agent): boolean {
+  if (isSystemAgent(agent)) return false
+  if (agent.id === 'hermes-development') return true
+  if (agent.id.startsWith('hermes-session-') || agent.id.startsWith('hermes-session:')) return true
+  if (agent.id.startsWith('tmux:')) return true
+  // Anything not classified as system is treated as project work by default.
+  return true
+}
+
+function isRecentlyActive(agent: Agent): boolean {
+  if (agent.status === 'running' || agent.status === 'waiting') return true
+  return Date.now() - agent.updatedAt.getTime() < RECENT_ACTIVITY_WINDOW_MS
+}
+
+function latestAgentSignal(agent: Agent): LogEntry | undefined {
+  return agent.logs.length ? agent.logs[agent.logs.length - 1] : undefined
+}
+
+function visibleAgents(view: DashboardView): Agent[] {
+  switch (view) {
+    case 'now':
+      return agents
+        .filter(a => isProjectAgent(a) && isRecentlyActive(a))
+        .sort(byActivityDesc)
+    case 'system':
+      return agents
+        .filter(isSystemAgent)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    case 'history':
+      return agents
+        .filter(a => !isSystemAgent(a) && !(isProjectAgent(a) && isRecentlyActive(a)))
+        .sort(byActivityDesc)
+  }
+}
+
+function byActivityDesc(a: Agent, b: Agent): number {
+  // Running first, then most recently updated
+  const aRun = a.status === 'running' ? 1 : 0
+  const bRun = b.status === 'running' ? 1 : 0
+  if (aRun !== bRun) return bRun - aRun
+  return b.updatedAt.getTime() - a.updatedAt.getTime()
+}
+
+// ── Activity merge ───────────────────────────────────────────────────────────
+
+function mergedRecentActivity(): LogStreamEntry[] {
+  if (mode === 'demo') return visibleLogStream().slice().reverse()
+
+  const seen = new Set<string>()
+  const all: LogStreamEntry[] = []
+
+  for (const agent of agents) {
+    if (!agent.logs.length) continue
+    // Take the tail of agent.logs to bound work on large snapshots.
+    const tail = agent.logs.length > 60 ? agent.logs.slice(-60) : agent.logs
+    for (const entry of tail) {
+      const key = logSignature(agent.id, entry)
+      if (seen.has(key)) continue
+      seen.add(key)
+      all.push({ agentId: agent.id, agentName: agent.name, entry })
+    }
+  }
+
+  for (const log of liveLogs) {
+    const key = logSignature(log.agentId, log.entry)
+    if (seen.has(key)) continue
+    seen.add(key)
+    all.push(log)
+  }
+
+  return all.sort((a, b) => b.entry.timestamp.getTime() - a.entry.timestamp.getTime())
+}
+
+function getActivityNowLogs(agents: Agent[]): LogStreamEntry[] {
+  const cutoff = Date.now() - ACTIVITY_NOW_WINDOW_MS
+  return mergedRecentActivity()
+    .filter(l => {
+      const agent = agents.find(a => a.id === l.agentId)
+      return (!agent || isProjectAgent(agent)) && l.entry.timestamp.getTime() >= cutoff
+    })
+    .sort((a, b) => b.entry.timestamp.getTime() - a.entry.timestamp.getTime())
+}
+
 // ── Render ───────────────────────────────────────────────────────────────────
 
 function preserveInputs(): Map<string, string> {
@@ -318,19 +457,21 @@ function render(): void {
   const statusBar = document.querySelector<HTMLDivElement>('#status-bar')
   if (!grid || !count || !statusBar) return
 
-  const running = agents.filter(a => a.status === 'running').length
   const waiting = agents.filter(a => a.status === 'waiting').length
   const errors  = agents.filter(a => a.status === 'error').length
-  const totalTokens = agents.reduce((s, a) => s + a.metrics.tokensUsed, 0)
 
-  count.textContent = String(agents.length)
+  const nowAgents     = visibleAgents('now')
+  const systemAgents  = visibleAgents('system')
+  const historyAgents = visibleAgents('history')
+  const activeRunning = nowAgents.filter(a => a.status === 'running').length
+  const recentSignals = getActivityNowLogs(agents).length
 
-  const heroAgents  = document.querySelector<HTMLElement>('#hero-agents')
-  const heroRunning = document.querySelector<HTMLElement>('#hero-running')
-  const heroTokens  = document.querySelector<HTMLElement>('#hero-tokens')
-  if (heroAgents)  heroAgents.textContent  = String(agents.length)
-  if (heroRunning) heroRunning.textContent = String(running)
-  if (heroTokens)  heroTokens.textContent  = fmtTokens(totalTokens)
+  const heroActive  = document.querySelector<HTMLElement>('#hero-active')
+  const heroSystem  = document.querySelector<HTMLElement>('#hero-system')
+  const heroSignals = document.querySelector<HTMLElement>('#hero-signals')
+  if (heroActive)  heroActive.textContent  = String(nowAgents.length || activeRunning)
+  if (heroSystem)  heroSystem.textContent  = String(systemAgents.length)
+  if (heroSignals) heroSignals.textContent = String(recentSignals)
 
   const connBadge =
     mode === 'live'         ? '<span class="conn-badge conn-badge--live">● live</span>' :
@@ -342,16 +483,45 @@ function render(): void {
     (waiting ? `<span class="status-count"><strong>${waiting}</strong> waiting</span>` : '') +
     (errors  ? `<span class="status-count status-count--error"><strong>${errors}</strong> error${errors > 1 ? 's' : ''}</span>` : '')
 
+  // Dashboard nav state and counts
+  const navCounts: Record<DashboardView, number> = {
+    now: nowAgents.length,
+    system: systemAgents.length,
+    history: historyAgents.length,
+  }
+  for (const view of ['now', 'system', 'history'] as const) {
+    const btn = document.querySelector<HTMLButtonElement>(`#dashboard-view-${view}`)
+    if (!btn) continue
+    btn.classList.toggle('dashboard-nav__btn--active', dashboardView === view)
+    btn.setAttribute('aria-selected', dashboardView === view ? 'true' : 'false')
+    const c = btn.querySelector<HTMLElement>('em')
+    if (c) c.textContent = String(navCounts[view])
+  }
+
+  const visible = visibleAgents(dashboardView)
+  count.textContent = String(visible.length)
+
   const saved = preserveInputs()
-  grid.innerHTML = agents.map(renderAgentCard).join('')
+  grid.innerHTML = visible.length
+    ? visible.map(renderAgentCard).join('')
+    : `<p class="agent-grid__empty">${esc(emptyDashboardMessage(dashboardView))}</p>`
   restoreInputs(saved)
 
+  renderActivityNow()
   renderEventTicker()
 
   if (selectedAgentId && !agents.some(a => a.id === selectedAgentId)) {
     selectedAgentId = null
   }
   renderAgentDetail()
+}
+
+function emptyDashboardMessage(view: DashboardView): string {
+  switch (view) {
+    case 'now':     return 'No active project work right now. Ask Hermes to continue development to populate this view.'
+    case 'system':  return 'No system processes registered.'
+    case 'history': return 'No idle or completed agents yet.'
+  }
 }
 
 function renderAgentCard(agent: Agent): string {
@@ -372,6 +542,14 @@ function renderAgentCard(agent: Agent): string {
       </details>`
     : ''
 
+  const latest = latestAgentSignal(agent)
+  const latestSection = latest
+    ? `<div class="agent-card__latest">
+        <span>Latest signal</span>
+        <p>${esc(truncate(latest.message, 120))}</p>
+      </div>`
+    : ''
+
   return `
     <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="Open details for ${esc(agent.name)}">
       <div class="agent-card__header">
@@ -385,6 +563,7 @@ function renderAgentCard(agent: Agent): string {
         <div><dt>Tools</dt><dd>${agent.metrics.toolCallsCount}</dd></div>
         <div><dt>Files</dt><dd>${agent.metrics.filesModified.length}</dd></div>
       </dl>
+      ${latestSection}
       <div class="agent-card__footer">
         <span class="agent-card__meta">${durationMs > 0 ? formatDuration(durationMs) : '—'}</span>
         <span class="agent-card__meta">${timeAgo(agent.updatedAt)}</span>
@@ -407,6 +586,50 @@ function renderAgentControls(agent: Agent): string {
       </div>
     </div>
   `
+}
+
+// ── Activity Now (primary live signals strip) ────────────────────────────────
+
+function renderActivityNow(): void {
+  const feed = document.querySelector<HTMLDivElement>('#activity-now-feed')
+  if (!feed) return
+
+  const recent = getActivityNowLogs(agents).slice(0, 8)
+
+  if (recent.length === 0) {
+    feed.innerHTML = `
+      <div class="activity-now__head">
+        <span class="activity-now__label">Activity Now</span>
+        <span class="activity-now__hint">Waiting for a fresh signal — ask Hermes to continue and live activity will appear here.</span>
+      </div>`
+    return
+  }
+
+  feed.innerHTML = `
+    <div class="activity-now__head">
+      <span class="activity-now__label">
+        <span class="activity-now__dot" aria-hidden="true"></span>
+        Activity Now
+      </span>
+      <span class="activity-now__hint">${recent.length} recent signal${recent.length === 1 ? '' : 's'} · open an agent for the full event stream</span>
+    </div>
+    <ul class="activity-now__list" role="log" aria-live="polite">
+      ${recent.map(renderActivityNowLine).join('')}
+    </ul>`
+}
+
+function renderActivityNowLine(l: LogStreamEntry): string {
+  const time = l.entry.timestamp.toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  return `
+    <li>
+      <button type="button" class="activity-now__item activity-now__item--${l.entry.level}" data-agent-id="${esc(l.agentId)}">
+        <span class="activity-now__time">${time}</span>
+        <span class="activity-now__agent">${esc(l.agentName)}</span>
+        <span class="activity-now__msg">${esc(truncate(l.entry.message, 160))}</span>
+      </button>
+    </li>`
 }
 
 // ── Event ticker (compact dashboard strip) ───────────────────────────────────
@@ -849,6 +1072,23 @@ document.addEventListener('click', (e: MouseEvent) => {
   if (tickerLine) {
     const id = tickerLine.dataset['agentId'] ?? ''
     if (id) openAgentDetail(id, 'activity')
+    return
+  }
+
+  const activityItem = target.closest<HTMLButtonElement>('.activity-now__item')
+  if (activityItem) {
+    const id = activityItem.dataset['agentId'] ?? ''
+    if (id) openAgentDetail(id, 'activity')
+    return
+  }
+
+  const navBtn = target.closest<HTMLButtonElement>('.dashboard-nav__btn')
+  if (navBtn) {
+    const view = navBtn.dataset['view'] as DashboardView | undefined
+    if (view && view !== dashboardView) {
+      dashboardView = view
+      render()
+    }
     return
   }
 
