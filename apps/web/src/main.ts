@@ -17,6 +17,7 @@ type DashboardView = 'now' | 'system' | 'history'
 let agents: Agent[] = []
 let liveLogs: LogStreamEntry[] = []
 let claudeTelemetry: ClaudeTelemetry | null = null
+let claudeControl: ClaudeControl | null = null
 let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
 let selectedAgentId: string | null = null
 let selectedTab: TabId = 'topology'
@@ -52,13 +53,14 @@ interface WireAgent {
 
 interface ClaudeTelemetryEvent {
   timestamp: string
-  type: 'start' | 'wait'
+  type: 'start' | 'wait' | 'blocked'
   printMode?: boolean
   cap?: number
   cappedOrAdded?: boolean
   argc?: number
   waitSeconds?: number
   reason?: string
+  mode?: string
 }
 
 interface ClaudeTelemetry {
@@ -70,6 +72,14 @@ interface ClaudeTelemetry {
   totalWaitSeconds1h: number
   pressure: 'calm' | 'elevated' | 'high'
   recentEvents: ClaudeTelemetryEvent[]
+}
+
+interface ClaudeControl {
+  mode: 'normal' | 'economy' | 'strict'
+  paused: boolean
+  maxTurnsCap: number
+  minStartIntervalSeconds: number
+  updatedAt: string
 }
 
 type WireEvent =
@@ -117,13 +127,36 @@ async function fetchClaudeTelemetry(): Promise<void> {
   }
 }
 
+async function fetchClaudeControl(): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/api/claude/control`, { signal: AbortSignal.timeout(3000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json() as { control: ClaudeControl }
+    claudeControl = data.control
+  } catch {
+    claudeControl = null
+  }
+}
+
+async function updateClaudeControl(patch: Partial<Pick<ClaudeControl, 'mode' | 'paused'>>): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/claude/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+    signal: AbortSignal.timeout(5000),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json() as { control: ClaudeControl }
+  claudeControl = data.control
+}
+
 async function connect(): Promise<void> {
   try {
     const res = await fetch(`${API_BASE}/api/agents`, { signal: AbortSignal.timeout(3000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json() as { agents: WireAgent[] }
     agents = data.agents.map(fromWireAgent)
-    await fetchClaudeTelemetry()
+    await Promise.all([fetchClaudeTelemetry(), fetchClaudeControl()])
     liveLogs = []
     mode = 'live'
     render()
@@ -662,8 +695,41 @@ function renderClaudeEvent(event: ClaudeTelemetryEvent): string {
   })
   const body = event.type === 'wait'
     ? `attente ${event.waitSeconds ?? 0}s · ${event.reason ?? 'cooldown'}`
-    : `lancement · cap ${event.cap ?? '—'}${event.cappedOrAdded ? ' · cap appliqué' : ''}`
+    : event.type === 'blocked'
+      ? `bloqué · ${event.mode ?? 'pause'} · ${event.reason ?? 'agentdeck_pause'}`
+      : `lancement · cap ${event.cap ?? '—'}${event.cappedOrAdded ? ' · cap appliqué' : ''}`
   return `<li><time>${time}</time><span>${esc(body)}</span></li>`
+}
+
+function claudeModeLabel(modeName: ClaudeControl['mode']): string {
+  switch (modeName) {
+    case 'normal':  return 'Normal'
+    case 'economy': return 'Économie'
+    case 'strict':  return 'Strict'
+  }
+}
+
+function renderClaudeControls(): string {
+  if (!claudeControl) {
+    return '<p class="claude-pressure__note">Contrôle Claude Code indisponible.</p>'
+  }
+
+  const c = claudeControl
+  const modes: ClaudeControl['mode'][] = ['normal', 'economy', 'strict']
+  return `
+    <div class="claude-control" aria-label="Contrôle Claude Code">
+      <div class="claude-control__summary">
+        <span>Mode ${claudeModeLabel(c.mode)}</span>
+        <span>max-turns ≤ ${c.maxTurnsCap}</span>
+        <span>pause min. ${formatDuration(c.minStartIntervalSeconds * 1000)}</span>
+        <span>${c.paused ? 'lancements suspendus' : 'lancements autorisés'}</span>
+      </div>
+      <div class="claude-control__actions">
+        ${modes.map(m => `
+          <button type="button" class="claude-control__btn${m === c.mode ? ' claude-control__btn--active' : ''}" data-claude-mode="${m}" ${m === c.mode ? 'aria-pressed="true"' : 'aria-pressed="false"'}>${claudeModeLabel(m)}</button>`).join('')}
+        <button type="button" class="claude-control__btn claude-control__btn--pause${c.paused ? ' claude-control__btn--active' : ''}" data-claude-paused="${c.paused ? '0' : '1'}">${c.paused ? 'Reprendre' : 'Pause IA'}</button>
+      </div>
+    </div>`
 }
 
 function renderClaudePressure(): void {
@@ -676,20 +742,23 @@ function renderClaudePressure(): void {
         <div><span class="claude-pressure__eyebrow">Claude Code</span><strong>Pression inconnue</strong></div>
         <span class="pressure-pill pressure-pill--unknown">hors ligne</span>
       </div>
+      ${renderClaudeControls()}
       <p class="claude-pressure__note">La télémétrie locale du throttle n’est pas encore disponible.</p>`
     return
   }
 
   const t = claudeTelemetry
   const events = t.recentEvents.slice(0, 4)
+  const statusText = claudeControl?.paused ? 'Lancements en pause' : `Pression ${pressureLabel(t.pressure)}`
   panel.innerHTML = `
     <div class="claude-pressure__head">
       <div>
         <span class="claude-pressure__eyebrow">Claude Code</span>
-        <strong>Pression ${pressureLabel(t.pressure)}</strong>
+        <strong>${statusText}</strong>
       </div>
-      <span class="pressure-pill pressure-pill--${t.pressure}">${t.pressure}</span>
+      <span class="pressure-pill pressure-pill--${claudeControl?.paused ? 'unknown' : t.pressure}">${claudeControl?.paused ? 'paused' : t.pressure}</span>
     </div>
+    ${renderClaudeControls()}
     <dl class="claude-pressure__metrics">
       <div><dt>Lancements 1h</dt><dd>${t.launches1h}</dd></div>
       <div><dt>Attentes</dt><dd>${t.waits1h}</dd></div>
@@ -1152,6 +1221,30 @@ document.addEventListener('click', (e: MouseEvent) => {
     return
   }
 
+  const claudeModeBtn = target.closest<HTMLButtonElement>('button[data-claude-mode]')
+  if (claudeModeBtn) {
+    const nextMode = claudeModeBtn.dataset['claudeMode'] as ClaudeControl['mode'] | undefined
+    if (!nextMode || claudeModeBtn.disabled) return
+    claudeModeBtn.disabled = true
+    updateClaudeControl({ mode: nextMode })
+      .then(renderClaudePressure)
+      .catch(() => { /* keep current safe state */ })
+      .finally(() => { claudeModeBtn.disabled = false })
+    return
+  }
+
+  const claudePauseBtn = target.closest<HTMLButtonElement>('button[data-claude-paused]')
+  if (claudePauseBtn) {
+    if (claudePauseBtn.disabled) return
+    const paused = claudePauseBtn.dataset['claudePaused'] === '1'
+    claudePauseBtn.disabled = true
+    updateClaudeControl({ paused })
+      .then(renderClaudePressure)
+      .catch(() => { /* keep current safe state */ })
+      .finally(() => { claudePauseBtn.disabled = false })
+    return
+  }
+
   const ctlBtn = target.closest<HTMLButtonElement>('button.agent-control-send, button.agent-control-stop')
   if (ctlBtn) {
     if (ctlBtn.disabled) return
@@ -1231,9 +1324,9 @@ connect()
 // Keep "time ago" / duration tickers and local Claude pressure fresh.
 setInterval(() => {
   if (mode === 'live') {
-    fetchClaudeTelemetry()
+    Promise.all([fetchClaudeTelemetry(), fetchClaudeControl()])
       .then(renderClaudePressure)
-      .catch(() => { /* already handled in fetchClaudeTelemetry */ })
+      .catch(() => { /* already handled in fetch helpers */ })
   }
   if (selectedAgentId) renderAgentDetail()
 }, CLOCK_RENDER_MS)

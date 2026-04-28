@@ -1,0 +1,126 @@
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+
+export type ClaudeControlMode = 'normal' | 'economy' | 'strict'
+
+export interface ClaudeControlState {
+  mode: ClaudeControlMode
+  paused: boolean
+  maxTurnsCap: number
+  minStartIntervalSeconds: number
+  updatedAt: string
+}
+
+export interface ClaudeControlPatch {
+  mode?: unknown
+  paused?: unknown
+}
+
+const CONTROL_FILE = process.env['AGENTDECK_CLAUDE_CONTROL_FILE'] ?? '/root/.hermes/claude-control.env'
+
+const MODE_SETTINGS: Record<ClaudeControlMode, { maxTurnsCap: number; minStartIntervalSeconds: number }> = {
+  normal:  { maxTurnsCap: 10, minStartIntervalSeconds: 60 },
+  economy: { maxTurnsCap: 5,  minStartIntervalSeconds: 120 },
+  strict:  { maxTurnsCap: 3,  minStartIntervalSeconds: 300 },
+}
+
+function isMode(value: unknown): value is ClaudeControlMode {
+  return value === 'normal' || value === 'economy' || value === 'strict'
+}
+
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback
+  return value === '1' || value.toLowerCase() === 'true'
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || !/^\d+$/.test(value)) return fallback
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function parseEnv(raw: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const match = /^([A-Z0-9_]+)=([A-Za-z0-9_.:-]+)$/.exec(trimmed)
+    if (!match) continue
+    env[match[1] ?? ''] = match[2] ?? ''
+  }
+  return env
+}
+
+export function controlStateForMode(mode: ClaudeControlMode, now = new Date()): ClaudeControlState {
+  return {
+    mode,
+    paused: false,
+    ...MODE_SETTINGS[mode],
+    updatedAt: now.toISOString(),
+  }
+}
+
+export function defaultClaudeControl(now = new Date()): ClaudeControlState {
+  return controlStateForMode('normal', now)
+}
+
+export function formatClaudeControlEnv(state: ClaudeControlState): string {
+  return [
+    '# AgentDeck Claude Code control state — safe scalar values only.',
+    `HERMES_CLAUDE_CONTROL_MODE=${state.mode}`,
+    `HERMES_CLAUDE_PAUSED=${state.paused ? '1' : '0'}`,
+    `HERMES_CLAUDE_MAX_TURNS_CAP=${state.maxTurnsCap}`,
+    `HERMES_CLAUDE_MIN_START_INTERVAL_SECONDS=${state.minStartIntervalSeconds}`,
+    `HERMES_CLAUDE_CONTROL_UPDATED_AT=${state.updatedAt}`,
+    '',
+  ].join('\n')
+}
+
+export async function readClaudeControl(path = CONTROL_FILE, now = new Date()): Promise<ClaudeControlState> {
+  const fallback = defaultClaudeControl(now)
+  let raw: string
+  try {
+    raw = await readFile(path, 'utf8')
+  } catch {
+    return fallback
+  }
+
+  const env = parseEnv(raw)
+  const mode = isMode(env['HERMES_CLAUDE_CONTROL_MODE']) ? env['HERMES_CLAUDE_CONTROL_MODE'] : fallback.mode
+  const settings = MODE_SETTINGS[mode]
+  return {
+    mode,
+    paused: parseBool(env['HERMES_CLAUDE_PAUSED'], fallback.paused),
+    maxTurnsCap: parsePositiveInt(env['HERMES_CLAUDE_MAX_TURNS_CAP'], settings.maxTurnsCap),
+    minStartIntervalSeconds: parsePositiveInt(
+      env['HERMES_CLAUDE_MIN_START_INTERVAL_SECONDS'],
+      settings.minStartIntervalSeconds,
+    ),
+    updatedAt: env['HERMES_CLAUDE_CONTROL_UPDATED_AT'] ?? fallback.updatedAt,
+  }
+}
+
+export async function updateClaudeControl(
+  patch: ClaudeControlPatch,
+  path = CONTROL_FILE,
+  now = new Date(),
+): Promise<ClaudeControlState> {
+  const current = await readClaudeControl(path, now)
+  let next: ClaudeControlState = { ...current, updatedAt: now.toISOString() }
+
+  if (patch.mode !== undefined) {
+    if (!isMode(patch.mode)) throw new Error('Invalid Claude control mode')
+    next = { ...controlStateForMode(patch.mode, now), paused: current.paused }
+  }
+
+  if (patch.paused !== undefined) {
+    if (typeof patch.paused !== 'boolean') throw new Error('paused must be a boolean')
+    next = { ...next, paused: patch.paused, updatedAt: now.toISOString() }
+  }
+
+  await mkdir(dirname(path), { recursive: true })
+  const tmp = `${path}.${process.pid}.tmp`
+  await writeFile(tmp, formatClaudeControlEnv(next), { encoding: 'utf8', mode: 0o600 })
+  await rename(tmp, path)
+  return next
+}

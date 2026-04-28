@@ -18,7 +18,14 @@ export interface ClaudeWaitEvent {
   reason: string
 }
 
-export type ClaudeThrottleEvent = ClaudeStartEvent | ClaudeWaitEvent
+export interface ClaudeBlockedEvent {
+  timestamp: string
+  type: 'blocked'
+  reason: string
+  mode: string
+}
+
+export type ClaudeThrottleEvent = ClaudeStartEvent | ClaudeWaitEvent | ClaudeBlockedEvent
 
 export interface ClaudeTelemetrySummary {
   source: string
@@ -76,6 +83,13 @@ export function parseClaudeThrottleLine(line: string): ClaudeThrottleEvent | nul
     const reason = textField(rest, 'reason')
     if (waitSeconds === null || reason === null) return null
     return { timestamp, type: 'wait', waitSeconds, reason }
+  }
+
+  if (rest.startsWith('blocked ')) {
+    const reason = textField(rest, 'reason')
+    const mode = textField(rest, 'mode')
+    if (reason === null || mode === null) return null
+    return { timestamp, type: 'blocked', reason, mode }
   }
 
   return null

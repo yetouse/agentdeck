@@ -5,6 +5,7 @@ import { startHermesConnector, getLatestHermesStatus } from './hermes.js'
 import { launchClaude } from './launch.js'
 import { sendAgentInput, stopAgent } from './control.js'
 import { readClaudeTelemetry } from './claudeTelemetry.js'
+import { readClaudeControl, updateClaudeControl } from './claudeControl.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -155,6 +156,35 @@ async function handleClaudeTelemetry(_req: IncomingMessage, res: ServerResponse)
   json(res, 200, { telemetry: await readClaudeTelemetry() })
 }
 
+async function handleClaudeControlGet(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  json(res, 200, { control: await readClaudeControl() })
+}
+
+async function handleClaudeControlPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let body: unknown
+  try {
+    body = await readBody(req)
+  } catch (err: unknown) {
+    const status = (err instanceof Error && typeof (err as Error & { status?: number }).status === 'number')
+      ? (err as Error & { status: number }).status
+      : 400
+    json(res, status, { error: err instanceof Error ? err.message : 'Invalid request' })
+    return
+  }
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    json(res, 400, { error: 'Request body must be a JSON object' })
+    return
+  }
+
+  try {
+    const control = await updateClaudeControl(body as Record<string, unknown>)
+    json(res, 200, { control })
+  } catch (err: unknown) {
+    json(res, 400, { error: err instanceof Error ? err.message : 'Invalid Claude control request' })
+  }
+}
+
 function handleEvents(req: IncomingMessage, res: ServerResponse): void {
   setCors(res)
   res.writeHead(200, {
@@ -193,6 +223,16 @@ function router(req: IncomingMessage, res: ServerResponse): void {
     handleHermesStatus(req, res)
   } else if (req.method === 'GET' && path === '/api/claude/telemetry') {
     handleClaudeTelemetry(req, res).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Internal server error'
+      json(res, 500, { error: msg })
+    })
+  } else if (req.method === 'GET' && path === '/api/claude/control') {
+    handleClaudeControlGet(req, res).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Internal server error'
+      json(res, 500, { error: msg })
+    })
+  } else if (req.method === 'POST' && path === '/api/claude/control') {
+    handleClaudeControlPost(req, res).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Internal server error'
       json(res, 500, { error: msg })
     })
@@ -241,6 +281,8 @@ server.listen(PORT, HOST, () => {
   console.log('  GET  /api/agents                   list agents (JSON)')
   console.log('  GET  /api/events                   SSE event stream')
   console.log('  GET  /api/claude/telemetry         Claude Code throttle telemetry (JSON)')
+  console.log('  GET  /api/claude/control           Claude Code throttle control state')
+  console.log('  POST /api/claude/control           update Claude Code throttle controls')
   console.log('  POST /api/agents/launch             launch a new Claude Code tmux session')
   console.log('  POST /api/agents/:id/input          send text to a tmux agent pane')
   console.log('  POST /api/agents/:id/stop           stop or kill a tmux agent session')
