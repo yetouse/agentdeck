@@ -660,20 +660,15 @@ body {
   border: 1px solid var(--red-border);
 }
 
-/* Pulsing activity dot for running agents */
+/* Activity dot for running agents: static signal, not decoration */
 .agent-pulse {
   display: inline-block;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--emerald);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
   flex-shrink: 0;
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-  50%       { opacity: 0.8; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
 }
 
 /* Metrics row */
@@ -962,7 +957,6 @@ details ul li {
   border-radius: 50%;
   background: var(--emerald);
   flex-shrink: 0;
-  animation: pulse-dot 2.5s ease-in-out infinite;
 }
 
 /* ── Event ticker: compact dashboard activity ──────────────────────────────── */
@@ -1007,7 +1001,6 @@ details ul li {
   border-radius: 999px;
   background: var(--emerald-light);
   box-shadow: 0 0 18px rgba(52, 211, 153, 0.55);
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 .event-ticker__feed {
@@ -1269,9 +1262,6 @@ details ul li {
 }
 
 .inspector__tabs {
-  position: sticky;
-  top: -1.15rem;
-  z-index: 2;
   display: flex;
   gap: 0.45rem;
   padding: 0.45rem;
@@ -1279,8 +1269,6 @@ details ul li {
   border: 1px solid var(--border-2);
   border-radius: var(--r-xl);
   background: rgba(8, 9, 10, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
 }
 
 .inspector__tab {
@@ -1451,7 +1439,7 @@ details ul li {
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.72rem;
   min-height: 100%;
 }
@@ -1649,11 +1637,9 @@ details ul li {
 .inspector__control .agent-controls__input { min-height: 9rem; }
 .inspector__control .agent-controls__row { margin-top: 0.7rem; }
 
-/* ── Animations ────────────────────────────────────────────────────────────── */
+/* ── Motion policy ─────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .agent-pulse { animation: none; box-shadow: none; }
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
 }
