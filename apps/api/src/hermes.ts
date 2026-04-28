@@ -1,7 +1,7 @@
 import { request } from 'node:http'
 import { openSync, closeSync, readSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Agent, AgentEvent, AgentStatus, LogEntry } from './types.js'
+import type { Agent, AgentEvent, AgentStatus, LogEntry, Topology, TopologyEdge, TopologyNode } from './types.js'
 
 const HERMES_URL = 'http://127.0.0.1:9119/api/status'
 const POLL_MS = 5_000
@@ -179,7 +179,23 @@ function parseJsonlLine(line: string): JsonlLine | null {
   try {
     if (trimmed.length > 40_000) {
       const m = /"role"\s*:\s*"([^"]+)"/.exec(trimmed)
-      return m ? { role: m[1] } : null
+      if (!m) return null
+      const line: JsonlLine = { role: m[1] }
+      if (line.role === 'assistant') {
+        const tool_calls: NonNullable<JsonlLine['tool_calls']> = []
+        const seen = new Set<string>()
+        const nameRe = /"function"\s*:\s*\{[^{}]*"name"\s*:\s*"([a-zA-Z0-9_:-]{1,48})"/g
+        let nameMatch: RegExpExecArray | null
+        while ((nameMatch = nameRe.exec(trimmed)) !== null && tool_calls.length < 24) {
+          const name = safeToolName(nameMatch[1])
+          if (name && !seen.has(name)) {
+            seen.add(name)
+            tool_calls.push({ function: { name } })
+          }
+        }
+        if (tool_calls.length > 0) line.tool_calls = tool_calls
+      }
+      return line
     }
     const obj = JSON.parse(trimmed) as unknown
     if (typeof obj !== 'object' || obj === null) return null
@@ -382,6 +398,275 @@ function parseToolArguments(raw: unknown): unknown {
   try { return JSON.parse(raw) as unknown } catch { return raw }
 }
 
+// ── Topology inference ────────────────────────────────────────────────────────
+
+type Workstream =
+  | 'coordination'
+  | 'investigation'
+  | 'implementation'
+  | 'verification'
+  | 'deployment'
+  | 'release'
+  | 'observed-tools'
+
+const WORKSTREAM_LABEL: Record<Workstream, string> = {
+  coordination:    'Coordination',
+  investigation:   'Investigation',
+  implementation:  'Implementation',
+  verification:    'Verification',
+  deployment:      'Deployment',
+  release:         'Git / Release',
+  'observed-tools':'Observed Tools',
+}
+
+const SAFE_VERB = /^[a-z][a-z0-9_-]{0,24}$/i
+
+// Pull just the leading command verb from a terminal-style string. Refuses
+// anything containing shell metacharacters that could leak content.
+function extractCommandVerb(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  // Take only the first token; the rest may contain secrets/paths.
+  const head = trimmed.split(/\s+/, 1)[0] ?? ''
+  // Strip optional leading "sudo "
+  const verb = head === 'sudo' ? (trimmed.split(/\s+/, 2)[1] ?? '') : head
+  return SAFE_VERB.test(verb) ? verb.toLowerCase() : null
+}
+
+function extractTerminalSecondary(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const tokens = raw.trim().split(/\s+/)
+  // For commands like `npm run typecheck`, peek at the script verb.
+  if (tokens.length >= 3 && tokens[0] === 'npm' && tokens[1] === 'run') {
+    const t = tokens[2] ?? ''
+    return SAFE_VERB.test(t) ? t.toLowerCase() : null
+  }
+  if (tokens.length >= 2 && tokens[0] === 'git') {
+    const t = tokens[1] ?? ''
+    return SAFE_VERB.test(t) ? t.toLowerCase() : null
+  }
+  return null
+}
+
+function classifyToolName(name: string): Workstream {
+  const n = name.toLowerCase()
+  if (n === 'todo' || n === 'todowrite' || n === 'clarify' || n === 'send_message' || n === 'cronjob' || n === 'cron') return 'coordination'
+  if (n === 'read_file' || n === 'read' || n === 'search_files' || n === 'grep' || n === 'glob' || n === 'session_search' || n === 'browser_console') return 'investigation'
+  if (n === 'patch' || n === 'edit' || n === 'write_file' || n === 'write' || n === 'claude') return 'implementation'
+  if (n === 'vision') return 'verification'
+  if (n.startsWith('browser_')) return 'verification'
+  return 'observed-tools'
+}
+
+function classifyTerminalCommand(verb: string, secondary: string | null, fullText: string): Workstream {
+  const t = fullText.toLowerCase()
+  if (verb === 'git') {
+    if (secondary === 'commit' || secondary === 'push' || secondary === 'tag') return 'release'
+    return 'release'
+  }
+  if (verb === 'npm' || verb === 'pnpm' || verb === 'yarn') {
+    if (secondary === 'typecheck' || secondary === 'build' || secondary === 'test' || secondary === 'audit' || secondary === 'lint') return 'verification'
+    return 'implementation'
+  }
+  if (verb === 'rsync' || verb === 'scp' || verb === 'systemctl' || verb === 'nginx' || verb === 'certbot') return 'deployment'
+  if (verb === 'curl' && (t.includes('smoke') || t.includes('/health') || t.includes('://'))) return 'deployment'
+  if (verb === 'tsc') return 'verification'
+  return 'implementation'
+}
+
+interface ToolObservation {
+  name: string                  // safe canonical tool name
+  workstream: Workstream
+  count: number
+}
+
+interface TopologyAccumulator {
+  toolByName: Map<string, ToolObservation>
+  workstreamCounts: Map<Workstream, number>
+  files: Set<string>
+  toolCallTotal: number
+}
+
+function newTopologyAccumulator(): TopologyAccumulator {
+  return {
+    toolByName: new Map(),
+    workstreamCounts: new Map(),
+    files: new Set(),
+    toolCallTotal: 0,
+  }
+}
+
+function recordWorkstream(acc: TopologyAccumulator, ws: Workstream): void {
+  acc.workstreamCounts.set(ws, (acc.workstreamCounts.get(ws) ?? 0) + 1)
+}
+
+function recordTool(acc: TopologyAccumulator, name: string, ws: Workstream): void {
+  const existing = acc.toolByName.get(name)
+  if (existing) {
+    existing.count += 1
+  } else {
+    acc.toolByName.set(name, { name, workstream: ws, count: 1 })
+  }
+  recordWorkstream(acc, ws)
+  acc.toolCallTotal += 1
+}
+
+function ingestEntries(entries: JsonlLine[], acc: TopologyAccumulator): void {
+  for (const e of entries) {
+    if (e.role === 'user' && typeof e.content === 'string') {
+      const c = e.content
+      if (c && !c.trimStart().startsWith('[CONTEXT COMPACTION')) {
+        // Any visible user prompt is a safe coordination signal. It gives the
+        // graph a truthful root/workstream even before tool calls arrive.
+        recordWorkstream(acc, 'coordination')
+      }
+      continue
+    }
+    if (e.role !== 'assistant' || !Array.isArray(e.tool_calls)) continue
+    for (const tc of e.tool_calls) {
+      const safe = safeToolName(tc.function?.name)
+      if (!safe) continue
+      const args = parseToolArguments(tc.function?.arguments)
+      collectPathsFromValue(args, acc.files)
+
+      let ws = classifyToolName(safe)
+      if (safe === 'terminal' || safe === 'bash' || safe === 'shell') {
+        const cmdRaw = extractCommandText(args)
+        const verb = extractCommandVerb(cmdRaw)
+        if (verb) {
+          const secondary = extractTerminalSecondary(cmdRaw)
+          ws = classifyTerminalCommand(verb, secondary, cmdRaw ?? '')
+          // Use the verb as a more meaningful tool label.
+          recordTool(acc, verb, ws)
+          continue
+        }
+      }
+      recordTool(acc, safe, ws)
+    }
+  }
+}
+
+function extractCommandText(args: unknown): string {
+  if (typeof args !== 'object' || args === null) return ''
+  const a = args as Record<string, unknown>
+  for (const key of ['command', 'cmd', 'script', 'shell', 'input']) {
+    const v = a[key]
+    if (typeof v === 'string') return v
+  }
+  return ''
+}
+
+function buildTopologyFromAccumulator(
+  rootId: string,
+  rootLabel: string,
+  rootStatus: AgentStatus,
+  acc: TopologyAccumulator,
+  fileLimit: number,
+): Topology {
+  const nodes: TopologyNode[] = []
+  const edges: TopologyEdge[] = []
+
+  nodes.push({
+    id: rootId,
+    label: rootLabel,
+    kind: 'agent',
+    status: rootStatus,
+    observed: true,
+    count: acc.toolCallTotal,
+  })
+
+  // Workstreams (inferred). Order by descending count, stable label tiebreak.
+  const wsEntries = Array.from(acc.workstreamCounts.entries())
+    .sort((a, b) => b[1] - a[1] || WORKSTREAM_LABEL[a[0]].localeCompare(WORKSTREAM_LABEL[b[0]]))
+
+  for (const [ws, count] of wsEntries) {
+    const wsId = `ws:${ws}`
+    nodes.push({
+      id: wsId,
+      label: WORKSTREAM_LABEL[ws],
+      kind: 'workstream',
+      status: rootStatus === 'running' ? 'running' : 'idle',
+      observed: false,
+      count,
+    })
+    edges.push({ from: rootId, to: wsId })
+  }
+
+  // Tools per workstream (observed). Dedup by canonical name.
+  const toolList = Array.from(acc.toolByName.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  for (const tool of toolList) {
+    const wsId = `ws:${tool.workstream}`
+    if (!nodes.some(n => n.id === wsId)) continue
+    const toolId = `tool:${tool.workstream}:${tool.name}`
+    nodes.push({
+      id: toolId,
+      label: tool.name,
+      kind: 'tool',
+      status: 'idle',
+      observed: true,
+      count: tool.count,
+    })
+    edges.push({ from: wsId, to: toolId })
+  }
+
+  // Files (observed). Limit to keep the graph readable.
+  const fileList = Array.from(acc.files).slice(0, fileLimit)
+  if (fileList.length > 0) {
+    // Anchor files to the most relevant workstream when possible, else to root.
+    const anchorWs: Workstream | null =
+      acc.workstreamCounts.has('implementation') ? 'implementation'
+      : acc.workstreamCounts.has('investigation') ? 'investigation'
+      : null
+    const anchorId = anchorWs ? `ws:${anchorWs}` : rootId
+    for (const path of fileList) {
+      const fileId = `file:${path}`
+      nodes.push({
+        id: fileId,
+        label: path,
+        kind: 'file',
+        status: 'idle',
+        observed: true,
+      })
+      edges.push({ from: anchorId, to: fileId })
+    }
+  }
+
+  return { nodes, edges, updatedAt: iso() }
+}
+
+function buildSessionTopology(
+  sessionId: string,
+  sessionName: string,
+  sessionStatus: AgentStatus,
+  platform: string,
+  entries: JsonlLine[],
+): Topology {
+  const acc = newTopologyAccumulator()
+  ingestEntries(entries, acc)
+  if (acc.workstreamCounts.size === 0) recordWorkstream(acc, 'coordination')
+
+  const rootId = `hermes-session-${safeId(sessionId)}`
+  const topology = buildTopologyFromAccumulator(rootId, sessionName, sessionStatus, acc, 6)
+
+  // Decorate root with platform detail without leaking secrets.
+  const root = topology.nodes[0]
+  if (root) root.detail = `platform: ${platform}`
+
+  return topology
+}
+
+function buildSimpleStatusTopology(rootId: string, rootLabel: string, status: AgentStatus, eventLabel: string): Topology {
+  return {
+    nodes: [
+      { id: rootId, label: rootLabel, kind: 'agent', status, observed: true },
+      { id: `${rootId}:status`, label: eventLabel, kind: 'event', status, observed: true },
+    ],
+    edges: [{ from: rootId, to: `${rootId}:status` }],
+    updatedAt: iso(),
+  }
+}
+
 /**
  * Poll Hermes dashboard at http://127.0.0.1:9119/api/status every 5 s and
  * expose each subsystem as an AgentDeck Agent. Returns a cleanup function.
@@ -483,6 +768,7 @@ export function startHermesConnector(
           ...(meta.updated_at ? [`updated: ${meta.updated_at.slice(0, 19)}`] : []),
         ]
         agent.logs = logs
+        agent.topology = buildSessionTopology(meta.session_id, agentName, sessionStatus, platform, entries)
         sessionMtimes.set(meta.session_id, currentMtime)
         // Re-broadcast with complete data
         broadcast({ type: 'agent:registered', agent })
@@ -507,6 +793,7 @@ export function startHermesConnector(
             `session: ${meta.session_id.slice(0, 24)}`,
             ...(meta.updated_at ? [`updated: ${meta.updated_at.slice(0, 19)}`] : []),
           ]
+          existing.topology = buildSessionTopology(meta.session_id, existing.name, sessionStatus, platform, entries)
           existing.updatedAt = typeof meta.updated_at === 'string' ? meta.updated_at : iso()
           sessionMtimes.set(meta.session_id, currentMtime)
           broadcast({ type: 'agent:registered', agent: existing })
@@ -538,6 +825,7 @@ export function startHermesConnector(
     let recentToolCalls = 0
     let recentActivity = false
     let startedAt: string | null = null
+    const acc = newTopologyAccumulator()
 
     const pushDevLog = (timestamp: string, level: LogEntry['level'], message: string): void => {
       logs.push({ timestamp, level, message: sanitizeText(message, 180), source: 'hermes-development' })
@@ -563,6 +851,8 @@ export function startHermesConnector(
         latestMissionTs = missionTs
       }
 
+      ingestEntries(entries, acc)
+
       for (const e of entries) {
         const timestamp = typeof e.timestamp === 'string' ? e.timestamp : meta.updated_at ?? iso()
         if (e.role === 'user' && typeof e.content === 'string') {
@@ -584,7 +874,12 @@ export function startHermesConnector(
       }
     }
 
+    if (acc.workstreamCounts.size === 0 && metas.length > 0) {
+      recordWorkstream(acc, 'coordination')
+    }
+
     for (const path of Array.from(files)) pushDevLog(iso(), 'info', `Touched: ${path}`)
+    for (const path of Array.from(files)) acc.files.add(path)
 
     const task = latestMission || 'Watching Hermes development activity'
     const status: AgentStatus = metas.length > 0 && recentActivity ? 'running' : metas.length > 0 ? 'waiting' : 'idle'
@@ -602,6 +897,7 @@ export function startHermesConnector(
       return sum + Math.max(0, tokens)
     }, 0)
     dev.metrics.durationMs = startedAt ? Math.max(0, Date.now() - new Date(startedAt).getTime()) : 0
+    dev.topology = buildTopologyFromAccumulator(DEV_ID, 'Hermes Development', status, acc, MAX_DEV_FILES)
     broadcast({ type: 'agent:registered', agent: dev })
   }
 
@@ -652,6 +948,12 @@ export function startHermesConnector(
     const gateway = ensureAgent(GATEWAY_ID, 'Hermes Gateway', gatewayStatus, gatewayTask)
     setStatus(gateway, gatewayStatus)
     if (gateway.task !== gatewayTask) { gateway.task = gatewayTask; gateway.updatedAt = iso() }
+    gateway.topology = buildSimpleStatusTopology(
+      GATEWAY_ID,
+      'Hermes Gateway',
+      gatewayStatus,
+      safe.gateway_state ? `state: ${safe.gateway_state}` : 'state: unknown',
+    )
 
     const platLog = platformSummary(raw)
     if (platLog) {
@@ -666,6 +968,9 @@ export function startHermesConnector(
       'Web dashboard on 127.0.0.1:9119')
     setStatus(dashboard, 'running')
     addLog(dashboard, 'debug', `Status polled OK at ${safe.polled_at}`)
+    dashboard.topology = buildSimpleStatusTopology(
+      DASHBOARD_ID, 'Hermes Dashboard', 'running', `polled: ${safe.polled_at.slice(11, 19)}`,
+    )
 
     // ── hermes-sessions ───────────────────────────────────────────────────────
     const fileSessionCount = activeSessionCountFromFiles()
@@ -677,6 +982,9 @@ export function startHermesConnector(
     sessions.metrics.filesModified = [`active sessions: ${sessionCount}`]
     if (sessions.task !== sessionsTask) { sessions.task = sessionsTask; sessions.updatedAt = iso() }
     addLog(sessions, 'info', `${sessionCount} active session${sessionCount !== 1 ? 's' : ''}`)
+    sessions.topology = buildSimpleStatusTopology(
+      SESSIONS_ID, 'Hermes Sessions', sessionsStatus, `active: ${sessionCount}`,
+    )
 
     // ── per-session agents and aggregate development view from local files ─────
     syncSessionAgents()

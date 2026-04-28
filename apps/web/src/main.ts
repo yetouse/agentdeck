@@ -1,5 +1,5 @@
 import './styles.css'
-import type { Agent, AgentStatus, LogEntry } from './types/agent'
+import type { Agent, AgentStatus, LogEntry, Topology, TopologyEdge, TopologyNode } from './types/agent'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,12 @@ interface WireLogEntry {
   source?: string
 }
 
+interface WireTopology {
+  nodes: TopologyNode[]
+  edges: TopologyEdge[]
+  updatedAt: string
+}
+
 interface WireAgent {
   id: string
   name: string
@@ -30,6 +36,7 @@ interface WireAgent {
   updatedAt: string
   logs: WireLogEntry[]
   metrics: { tokensUsed: number; toolCallsCount: number; filesModified: string[]; durationMs: number }
+  topology?: WireTopology
 }
 
 type WireEvent =
@@ -46,12 +53,21 @@ function fromWireEntry(w: WireLogEntry): LogEntry {
   return { ...w, timestamp: new Date(w.timestamp) }
 }
 
+function fromWireTopology(w: WireTopology): Topology {
+  return {
+    nodes: w.nodes,
+    edges: w.edges,
+    updatedAt: new Date(w.updatedAt),
+  }
+}
+
 function fromWireAgent(w: WireAgent): Agent {
   return {
     ...w,
     startedAt: w.startedAt ? new Date(w.startedAt) : null,
     updatedAt: new Date(w.updatedAt),
     logs: w.logs.map(fromWireEntry),
+    topology: w.topology ? fromWireTopology(w.topology) : undefined,
   }
 }
 
@@ -171,6 +187,7 @@ function makeDemoAgents(): Agent[] {
         filesModified: ['apps/web/src/main.ts', 'docs/architecture.md'],
         durationMs: 18 * 60 * 1000,
       },
+      topology: makeDemoTopology('claude-dev', 'Claude Dev'),
     },
     {
       id: 'reviewer',
@@ -193,6 +210,29 @@ function makeDemoAgents(): Agent[] {
       metrics: { tokensUsed: 1420, toolCallsCount: 5, filesModified: [], durationMs: 18 * 60 * 1000 },
     },
   ]
+}
+
+function makeDemoTopology(rootId: string, rootLabel: string): Topology {
+  return {
+    updatedAt: new Date(),
+    nodes: [
+      { id: rootId, label: rootLabel, kind: 'agent', status: 'running', observed: true, count: 27 },
+      { id: 'ws:implementation', label: 'Implementation', kind: 'workstream', status: 'running', observed: false, count: 12 },
+      { id: 'ws:verification', label: 'Verification', kind: 'workstream', status: 'running', observed: false, count: 8 },
+      { id: 'ws:deployment', label: 'Deployment', kind: 'workstream', status: 'idle', observed: false, count: 3 },
+      { id: 'tool:implementation:patch', label: 'patch', kind: 'tool', status: 'idle', observed: true, count: 5 },
+      { id: 'tool:verification:npm', label: 'npm', kind: 'tool', status: 'idle', observed: true, count: 4 },
+      { id: 'file:apps/web/src/main.ts', label: 'apps/web/src/main.ts', kind: 'file', status: 'idle', observed: true },
+    ],
+    edges: [
+      { from: rootId, to: 'ws:implementation' },
+      { from: rootId, to: 'ws:verification' },
+      { from: rootId, to: 'ws:deployment' },
+      { from: 'ws:implementation', to: 'tool:implementation:patch' },
+      { from: 'ws:verification', to: 'tool:verification:npm' },
+      { from: 'ws:implementation', to: 'file:apps/web/src/main.ts' },
+    ],
+  }
 }
 
 const DEMO_LOGS: Array<{ agentId: string; agentName: string; entry: Omit<LogEntry, 'timestamp'> }> = [
@@ -433,6 +473,14 @@ function renderAgentDetail(): void {
 
     ${controls ? `<section class="agent-detail__section agent-detail__controls"><h3>Control</h3>${controls}</section>` : ''}
 
+    <section class="agent-detail__section agent-detail__topology-section">
+      <div class="agent-detail__section-title-row">
+        <h3>Agent topology</h3>
+        <span>${agent.topology ? `updated ${timeAgo(agent.topology.updatedAt)}` : 'waiting for activity'}</span>
+      </div>
+      ${renderTopologyGraph(agent)}
+    </section>
+
     <section class="agent-detail__section agent-detail__logs-section">
       <h3>Recent logs</h3>
       <div class="agent-detail__logs">
@@ -444,6 +492,62 @@ function renderAgentDetail(): void {
       <h3>Modified files</h3>
       <ul class="agent-detail__files">${files}</ul>
     </section>
+  `
+}
+
+function renderTopologyGraph(agent: Agent): string {
+  const topology = agent.topology
+  if (!topology || topology.nodes.length === 0) {
+    return '<p class="agent-detail__empty">Topology will appear as soon as Hermes emits tool activity.</p>'
+  }
+
+  const root = topology.nodes.find(n => n.kind === 'agent') ?? topology.nodes[0]
+  const workstreams = topology.nodes.filter(n => n.kind === 'workstream')
+  const observed = topology.nodes.filter(n => n.kind === 'tool' || n.kind === 'file' || n.kind === 'event').slice(0, 14)
+  const edgesByTarget = new Map<string, TopologyEdge[]>()
+  for (const edge of topology.edges) {
+    const list = edgesByTarget.get(edge.to) ?? []
+    list.push(edge)
+    edgesByTarget.set(edge.to, list)
+  }
+
+  const renderNode = (node: TopologyNode): string => {
+    const badge = node.observed ? 'Observed' : 'Inferred'
+    const count = typeof node.count === 'number' ? `<span class="topology-node__count">${node.count}</span>` : ''
+    const detail = node.detail ? `<small>${esc(node.detail)}</small>` : ''
+    const linked = edgesByTarget.has(node.id) ? ' topology-node--linked' : ''
+    return `
+      <div class="topology-node topology-node--${node.kind} topology-node--${node.status}${node.observed ? ' topology-node--observed' : ' topology-node--inferred'}${linked}">
+        <div class="topology-node__topline">
+          <span>${esc(node.kind)}</span>
+          <em>${badge}</em>
+        </div>
+        <strong title="${esc(node.label)}">${esc(node.label)}</strong>
+        ${detail}
+        ${count}
+      </div>
+    `
+  }
+
+  return `
+    <div class="agent-topology" aria-label="Agent topology graph">
+      <div class="agent-topology__legend">
+        <span><i class="legend-dot legend-dot--observed"></i> observed</span>
+        <span><i class="legend-dot legend-dot--inferred"></i> inferred workstreams</span>
+        <span class="agent-topology__edge-count">${topology.edges.length} links</span>
+      </div>
+      <div class="agent-topology__graph">
+        <div class="topology-column topology-column--root">
+          ${root ? renderNode(root) : ''}
+        </div>
+        <div class="topology-column topology-column--workstreams">
+          ${workstreams.length ? workstreams.map(renderNode).join('') : '<p class="agent-detail__empty">No inferred workstreams yet.</p>'}
+        </div>
+        <div class="topology-column topology-column--observed">
+          ${observed.length ? observed.map(renderNode).join('') : '<p class="agent-detail__empty">No observed tools/files yet.</p>'}
+        </div>
+      </div>
+    </div>
   `
 }
 

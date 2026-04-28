@@ -11,6 +11,31 @@ export interface Agent {
   updatedAt: string
   logs: LogEntry[]
   metrics: AgentMetrics
+  topology?: Topology
+}
+
+export type TopologyNodeKind = 'agent' | 'workstream' | 'tool' | 'file' | 'event'
+
+export interface TopologyNode {
+  id: string
+  label: string
+  kind: TopologyNodeKind
+  status: AgentStatus
+  observed: boolean
+  count?: number
+  detail?: string
+}
+
+export interface TopologyEdge {
+  from: string
+  to: string
+  label?: string
+}
+
+export interface Topology {
+  nodes: TopologyNode[]
+  edges: TopologyEdge[]
+  updatedAt: string
 }
 
 export interface LogEntry {
