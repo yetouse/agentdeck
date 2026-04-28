@@ -29,6 +29,19 @@
             <h2 class="panel__title">Agents</h2>
             <span id="agent-count" class="panel__badge">0</span>
           </div>
+          <form id="launch-form" class="launch-form" autocomplete="off">
+            <div class="launch-form__fields">
+              <input id="launch-task" type="text" class="launch-form__input launch-form__input--task"
+                placeholder="Task description…" maxlength="2000" required aria-label="Task" />
+              <input id="launch-name" type="text" class="launch-form__input"
+                placeholder="Name (optional)" maxlength="64" aria-label="Session name" />
+              <input id="launch-cwd" type="text" class="launch-form__input"
+                placeholder="Working directory (optional)" aria-label="Working directory" />
+              <button type="submit" class="launch-form__btn">Launch Claude</button>
+            </div>
+            <p id="launch-status" class="launch-form__status" role="status" aria-live="polite"></p>
+          </form>
+
           <div id="agent-grid" class="agent-grid"></div>
         </section>
 

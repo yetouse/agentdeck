@@ -52,6 +52,18 @@ A lightweight Node.js bridge server that currently:
 
 It binds to `127.0.0.1` by default and keeps all state in memory for the initial MVP. SQLite persistence and additional first-party connectors are planned next.
 
+**Control-plane endpoint — `POST /api/agents/launch`**
+
+Accepts a JSON body with `task` (required, ≤ 2 000 chars), `name` (optional display label), and `cwd` (optional working directory). It:
+
+1. Validates the request and resolves `cwd` via `fs.stat` — rejects non-existent paths with `400`.
+2. Confirms tmux is available (`tmux -V`) — returns `503` if missing.
+3. Derives a stable session name: `agentdeck-<slug>-<base36-timestamp>`.
+4. Runs `tmux new-session -d -s <name> -c <cwd> "claude '<task>'"` via `execFile` (no shell injection path for the outer args; the task string is single-quoted inside the shell command).
+5. Returns JSON with `sessionName`, `target`, `commandSummary`, `cwd`, `message`, and an optional `warning` when `AGENTDECK_CONNECTOR=tmux` is not set.
+
+The new tmux session is automatically discovered on the connector's next 2-second poll when the bridge runs with `AGENTDECK_CONNECTOR=tmux`. Sessions can also be launched while the demo connector is active — they will appear the next time the bridge is restarted in tmux mode.
+
 **Connector selection** is opt-in via the `AGENTDECK_CONNECTOR` environment variable:
 
 | Value | Connector | Source |
@@ -162,3 +174,4 @@ The cockpit uses a minimal reactive store (no external state library). The store
 - No agent credentials or secrets pass through AgentDeck; it observes but does not authenticate as the agent
 - Persisted session data is stored locally and never sent to any external service
 - The UI escapes all agent-produced strings before rendering to prevent XSS from malicious log output
+- `POST /api/agents/launch` uses `execFile` (not `exec`) so outer tmux arguments are never interpreted by a shell; user-supplied task text is single-quoted for the inner shell command. The `cwd` field is validated via `fs.stat` before use. The local smoke-test `command` override is rejected unless `AGENTDECK_ALLOW_COMMAND_OVERRIDE=1` is explicitly set. Authentication is not yet implemented — the localhost-only binding is the current trust boundary.

@@ -56,6 +56,42 @@ The first bridge implementation is intentionally lightweight: no database, no se
 | `GET /api/agents` | Current agent snapshots |
 | `GET /api/agents/:id` | Single agent snapshot |
 | `GET /api/events` | Server-Sent Events stream of normalized `AgentEvent` objects |
+| `POST /api/agents/launch` | Launch a new Claude Code session in a detached tmux window |
+
+### Launching a Claude Code session
+
+`POST /api/agents/launch` starts a detached tmux session running `claude <task>` and returns the session coordinates. The new session appears automatically in the cockpit when the bridge runs in tmux connector mode.
+
+```bash
+curl -s -X POST http://127.0.0.1:4000/api/agents/launch \
+  -H 'Content-Type: application/json' \
+  -d '{"task":"Fix the failing tests in apps/api","name":"test-fixer","cwd":"/path/to/project"}'
+```
+
+**Request body** (JSON):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `task` | string | yes | Task description passed to Claude as its initial prompt (max 2000 chars) |
+| `name` | string | no | Display/session label — slugified for the tmux session name |
+| `cwd` | string | no | Working directory; defaults to the bridge process's `cwd`. Rejected if it does not exist. |
+
+**Response** (200 OK):
+
+```json
+{
+  "sessionName": "agentdeck-test-fixer-abc123",
+  "target": "agentdeck-test-fixer-abc123:0.0",
+  "commandSummary": "claude 'Fix the failing tests in apps/api'",
+  "cwd": "/path/to/project",
+  "message": "Claude session launched as tmux session \"agentdeck-test-fixer-abc123\". Attach with: tmux attach -t agentdeck-test-fixer-abc123",
+  "warning": "AGENTDECK_CONNECTOR=tmux is not set — restart the bridge with that variable to observe this session automatically."
+}
+```
+
+Error responses: `400` for invalid input, `403` if the local-only smoke-test command override is disabled, `503` if tmux is not installed, `500` for unexpected errors.
+
+> **Safety note:** The endpoint binds to `127.0.0.1` and is intended for local development only. Do not expose it to a network without adding authentication. The undocumented `command` request field is reserved for smoke tests and is ignored unless `AGENTDECK_ALLOW_COMMAND_OVERRIDE=1` is set.
 
 ## Connectors
 

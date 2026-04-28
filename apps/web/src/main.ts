@@ -288,6 +288,58 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// ── Launch form ───────────────────────────────────────────────────────────────
+
+interface LaunchResponse {
+  sessionName?: string
+  message?: string
+  warning?: string
+  error?: string
+}
+
+document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const task    = document.querySelector<HTMLInputElement>('#launch-task')?.value.trim() ?? ''
+  const nameVal = document.querySelector<HTMLInputElement>('#launch-name')?.value.trim()
+  const cwdVal  = document.querySelector<HTMLInputElement>('#launch-cwd')?.value.trim()
+  const statusEl = document.querySelector<HTMLParagraphElement>('#launch-status')
+  const btn      = document.querySelector<HTMLButtonElement>('.launch-form__btn')
+
+  if (!statusEl || !btn) return
+
+  statusEl.textContent = 'Launching…'
+  statusEl.className = 'launch-form__status launch-form__status--pending'
+  btn.disabled = true
+
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task,
+        name: nameVal || undefined,
+        cwd:  cwdVal  || undefined,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    const data = await res.json() as LaunchResponse
+    if (res.ok) {
+      const warn = data.warning ? ` — ${data.warning}` : ''
+      statusEl.textContent = `✓ ${data.message ?? 'Launched'}${warn}`
+      statusEl.className = 'launch-form__status launch-form__status--ok'
+    } else {
+      statusEl.textContent = `✗ ${data.error ?? 'Launch failed'}`
+      statusEl.className = 'launch-form__status launch-form__status--error'
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error'
+    statusEl.textContent = `✗ ${msg}`
+    statusEl.className = 'launch-form__status launch-form__status--error'
+  } finally {
+    btn.disabled = false
+  }
+})
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.querySelector('#log-filter')?.addEventListener('change', render)
