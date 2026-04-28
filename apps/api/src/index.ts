@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { state, nextLogEvent, nextToolCallEvent, nextToolResultEvent } from './demo.js'
 import { startTmuxConnector } from './tmux.js'
+import { startHermesConnector, getLatestHermesStatus } from './hermes.js'
 import { launchClaude } from './launch.js'
 import { sendAgentInput, stopAgent } from './control.js'
 import type { AgentEvent } from './types.js'
@@ -145,6 +146,10 @@ async function handleAgentStop(req: IncomingMessage, res: ServerResponse, id: st
   }
 }
 
+function handleHermesStatus(_req: IncomingMessage, res: ServerResponse): void {
+  json(res, 200, getLatestHermesStatus())
+}
+
 function handleEvents(req: IncomingMessage, res: ServerResponse): void {
   setCors(res)
   res.writeHead(200, {
@@ -179,6 +184,8 @@ function router(req: IncomingMessage, res: ServerResponse): void {
     handleHealth(req, res)
   } else if (req.method === 'GET' && path === '/api/agents') {
     handleAgents(req, res)
+  } else if (req.method === 'GET' && path === '/api/hermes/status') {
+    handleHermesStatus(req, res)
   } else if (req.method === 'GET' && path.startsWith('/api/agents/')) {
     handleAgent(req, res, path.slice('/api/agents/'.length))
   } else if (req.method === 'GET' && path === '/api/events') {
@@ -230,6 +237,11 @@ server.listen(PORT, HOST, () => {
     console.log('  Connector: tmux   (polls every 2 s, set AGENTDECK_CONNECTOR=tmux)')
     state.clear()
     startTmuxConnector(state, broadcast)
+  } else if (connector === 'hermes') {
+    console.log('  Connector: hermes (polls Hermes dashboard at 127.0.0.1:9119 every 5 s)')
+    console.log('  GET  /api/hermes/status            sanitized Hermes status (JSON)')
+    state.clear()
+    startHermesConnector(state, broadcast)
   } else {
     console.log('  Connector: demo   (synthetic events, set AGENTDECK_CONNECTOR=tmux for real data)')
     startDemoLoop()

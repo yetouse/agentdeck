@@ -3,7 +3,7 @@ import type { Agent, AgentStatus, LogEntry } from './types/agent'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? 'http://127.0.0.1:4000'
+const API_BASE = import.meta.env.VITE_AGENTDECK_API_URL ?? ''
 
 // ── State ────────────────────────────────────────────────────────────────────
 
