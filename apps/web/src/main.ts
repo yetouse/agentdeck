@@ -81,6 +81,15 @@ interface ClaudeRuntime {
   cooldownRemainingSeconds: number
 }
 
+interface ClaudeControlAuditEntry {
+  timestamp: string
+  mode: 'normal' | 'economy' | 'strict'
+  paused: boolean
+  maxTurnsCap: number
+  minStartIntervalSeconds: number
+  changes: Array<'mode' | 'paused'>
+}
+
 interface ClaudeControl {
   mode: 'normal' | 'economy' | 'strict'
   paused: boolean
@@ -88,6 +97,7 @@ interface ClaudeControl {
   minStartIntervalSeconds: number
   updatedAt: string
   runtime?: ClaudeRuntime
+  audit?: ClaudeControlAuditEntry[]
 }
 
 type WireEvent =
@@ -732,6 +742,27 @@ function claudeRuntimeDetail(runtime: ClaudeRuntime | undefined): string {
   return runtime.status === 'cooling' ? `autorisé à ${next}` : `fenêtre ouverte depuis ${next}`
 }
 
+function claudeAuditChangeLabel(entry: ClaudeControlAuditEntry): string {
+  if (entry.changes.includes('mode') && entry.changes.includes('paused')) return 'mode + pause'
+  if (entry.changes.includes('mode')) return 'mode'
+  return 'pause'
+}
+
+function renderClaudeControlAudit(audit: ClaudeControlAuditEntry[] | undefined): string {
+  const entries = (audit ?? []).slice(-3).reverse()
+  if (entries.length === 0) return ''
+  return `
+    <ol class="claude-control__audit" aria-label="Derniers changements Claude Code">
+      ${entries.map(entry => {
+        const time = new Date(entry.timestamp).toLocaleTimeString('en', {
+          hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+        })
+        const state = `${claudeModeLabel(entry.mode)} · ${entry.paused ? 'pause' : 'actif'} · cap ${entry.maxTurnsCap}`
+        return `<li><time>${time}</time><span>${esc(claudeAuditChangeLabel(entry))}</span><strong>${esc(state)}</strong></li>`
+      }).join('')}
+    </ol>`
+}
+
 function renderClaudeControls(): string {
   if (!claudeControl) {
     return '<p class="claude-pressure__note">Contrôle Claude Code indisponible.</p>'
@@ -757,6 +788,7 @@ function renderClaudeControls(): string {
           <button type="button" class="claude-control__btn${m === c.mode ? ' claude-control__btn--active' : ''}" data-claude-mode="${m}" ${m === c.mode ? 'aria-pressed="true"' : 'aria-pressed="false"'}>${claudeModeLabel(m)}</button>`).join('')}
         <button type="button" class="claude-control__btn claude-control__btn--pause${c.paused ? ' claude-control__btn--active' : ''}" data-claude-paused="${c.paused ? '0' : '1'}">${c.paused ? 'Reprendre' : 'Pause IA'}</button>
       </div>
+      ${renderClaudeControlAudit(c.audit)}
     </div>`
 }
 

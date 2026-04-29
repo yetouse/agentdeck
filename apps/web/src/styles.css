@@ -1096,6 +1096,36 @@ details ul li {
 
 .claude-control__btn:disabled { opacity: 0.55; cursor: wait; }
 
+.claude-control__audit {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.28rem;
+  list-style: none;
+  margin: 0;
+  padding: 0.55rem 0 0;
+  border-top: 1px solid var(--border-1);
+}
+
+.claude-control__audit li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  color: var(--text-4);
+  font-size: 0.66rem;
+}
+
+.claude-control__audit time,
+.claude-control__audit span {
+  font-family: var(--font-mono);
+}
+
+.claude-control__audit strong {
+  color: var(--text-3);
+  font-weight: 600;
+  min-width: 0;
+}
+
 .claude-pressure__metrics div {
   padding: 0.55rem;
   border: 1px solid var(--border-2);

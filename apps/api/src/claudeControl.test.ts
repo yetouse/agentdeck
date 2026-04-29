@@ -6,6 +6,7 @@ import {
   controlStateForMode,
   formatClaudeControlEnv,
   readClaudeControl,
+  readClaudeControlAudit,
   readClaudeRuntime,
   summarizeClaudeRuntime,
   updateClaudeControl,
@@ -86,7 +87,8 @@ assert.deepEqual(summarizeClaudeRuntime(
 const dir = await mkdtemp(join(tmpdir(), 'agentdeck-claude-control-'))
 try {
   const file = join(dir, 'claude-control.env')
-  const saved = await updateClaudeControl({ mode: 'economy', paused: true }, file, now)
+  const auditFile = join(dir, 'claude-control.audit.jsonl')
+  const saved = await updateClaudeControl({ mode: 'economy', paused: true }, file, now, auditFile)
   assert.equal(saved.mode, 'economy')
   assert.equal(saved.paused, true)
   assert.equal(saved.maxTurnsCap, 5)
@@ -109,9 +111,30 @@ try {
   assert.equal(runtime.lastStartAt, '2026-02-25T06:19:00.000Z')
   assert.equal(runtime.cooldownRemainingSeconds, 60)
 
-  const resumed = await updateClaudeControl({ paused: false }, file, now)
+  const resumed = await updateClaudeControl({ paused: false }, file, now, auditFile)
   assert.equal(resumed.mode, 'economy')
   assert.equal(resumed.paused, false)
+
+  const audit = await readClaudeControlAudit(auditFile, 5)
+  assert.equal(audit.length, 2)
+  assert.deepEqual(audit[0], {
+    timestamp: now.toISOString(),
+    mode: 'economy',
+    paused: true,
+    maxTurnsCap: 5,
+    minStartIntervalSeconds: 120,
+    changes: ['mode', 'paused'],
+  })
+  assert.deepEqual(audit[1], {
+    timestamp: now.toISOString(),
+    mode: 'economy',
+    paused: false,
+    maxTurnsCap: 5,
+    minStartIntervalSeconds: 120,
+    changes: ['paused'],
+  })
+  const auditRaw = await readFile(auditFile, 'utf8')
+  assert.doesNotMatch(auditRaw, /secret|token|password|prompt|argv|bearer|authorization/i)
 } finally {
   await rm(dir, { recursive: true, force: true })
 }
