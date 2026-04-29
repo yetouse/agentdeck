@@ -5,7 +5,7 @@ import { startHermesConnector, getLatestHermesStatus } from './hermes.js'
 import { launchClaude } from './launch.js'
 import { sendAgentInput, stopAgent } from './control.js'
 import { readClaudeTelemetry } from './claudeTelemetry.js'
-import { readClaudeControl, updateClaudeControl } from './claudeControl.js'
+import { readClaudeControl, readClaudeRuntime, updateClaudeControl } from './claudeControl.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -157,7 +157,9 @@ async function handleClaudeTelemetry(_req: IncomingMessage, res: ServerResponse)
 }
 
 async function handleClaudeControlGet(_req: IncomingMessage, res: ServerResponse): Promise<void> {
-  json(res, 200, { control: await readClaudeControl() })
+  const control = await readClaudeControl()
+  const runtime = await readClaudeRuntime(control)
+  json(res, 200, { control: { ...control, runtime } })
 }
 
 async function handleClaudeControlPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -179,7 +181,8 @@ async function handleClaudeControlPost(req: IncomingMessage, res: ServerResponse
 
   try {
     const control = await updateClaudeControl(body as Record<string, unknown>)
-    json(res, 200, { control })
+    const runtime = await readClaudeRuntime(control)
+    json(res, 200, { control: { ...control, runtime } })
   } catch (err: unknown) {
     json(res, 400, { error: err instanceof Error ? err.message : 'Invalid Claude control request' })
   }

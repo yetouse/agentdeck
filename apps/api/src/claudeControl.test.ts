@@ -1,11 +1,13 @@
 import * as assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   controlStateForMode,
   formatClaudeControlEnv,
   readClaudeControl,
+  readClaudeRuntime,
+  summarizeClaudeRuntime,
   updateClaudeControl,
 } from './claudeControl.js'
 
@@ -48,6 +50,39 @@ assert.match(env, /HERMES_CLAUDE_MAX_TURNS_CAP=3/)
 assert.match(env, /HERMES_CLAUDE_MIN_START_INTERVAL_SECONDS=300/)
 assert.doesNotMatch(env, /secret|token|password|prompt|argv/i)
 
+assert.deepEqual(summarizeClaudeRuntime(
+  { mode: 'economy', paused: false, maxTurnsCap: 5, minStartIntervalSeconds: 120, updatedAt: now.toISOString() },
+  1_772_000_340,
+  new Date(1_772_000_400_000),
+), {
+  status: 'cooling',
+  lastStartAt: '2026-02-25T06:19:00.000Z',
+  nextAllowedAt: '2026-02-25T06:21:00.000Z',
+  cooldownRemainingSeconds: 60,
+})
+
+assert.deepEqual(summarizeClaudeRuntime(
+  { mode: 'strict', paused: true, maxTurnsCap: 3, minStartIntervalSeconds: 300, updatedAt: now.toISOString() },
+  null,
+  now,
+), {
+  status: 'paused',
+  lastStartAt: null,
+  nextAllowedAt: null,
+  cooldownRemainingSeconds: 0,
+})
+
+assert.deepEqual(summarizeClaudeRuntime(
+  { mode: 'economy', paused: false, maxTurnsCap: 5, minStartIntervalSeconds: 120, updatedAt: now.toISOString() },
+  1_772_000_000,
+  new Date(1_772_000_400_000),
+), {
+  status: 'ready',
+  lastStartAt: '2026-02-25T06:13:20.000Z',
+  nextAllowedAt: '2026-02-25T06:15:20.000Z',
+  cooldownRemainingSeconds: 0,
+})
+
 const dir = await mkdtemp(join(tmpdir(), 'agentdeck-claude-control-'))
 try {
   const file = join(dir, 'claude-control.env')
@@ -66,6 +101,13 @@ try {
   assert.equal(read.paused, true)
   assert.equal(read.maxTurnsCap, 5)
   assert.equal(read.minStartIntervalSeconds, 120)
+
+  const stateFile = join(dir, 'last-start')
+  await writeFile(stateFile, '1772000340\n', 'utf8')
+  const runtime = await readClaudeRuntime(read, stateFile, new Date(1_772_000_400_000))
+  assert.equal(runtime.status, 'paused')
+  assert.equal(runtime.lastStartAt, '2026-02-25T06:19:00.000Z')
+  assert.equal(runtime.cooldownRemainingSeconds, 60)
 
   const resumed = await updateClaudeControl({ paused: false }, file, now)
   assert.equal(resumed.mode, 'economy')

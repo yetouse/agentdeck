@@ -74,12 +74,20 @@ interface ClaudeTelemetry {
   recentEvents: ClaudeTelemetryEvent[]
 }
 
+interface ClaudeRuntime {
+  status: 'ready' | 'cooling' | 'paused'
+  lastStartAt: string | null
+  nextAllowedAt: string | null
+  cooldownRemainingSeconds: number
+}
+
 interface ClaudeControl {
   mode: 'normal' | 'economy' | 'strict'
   paused: boolean
   maxTurnsCap: number
   minStartIntervalSeconds: number
   updatedAt: string
+  runtime?: ClaudeRuntime
 }
 
 type WireEvent =
@@ -709,12 +717,28 @@ function claudeModeLabel(modeName: ClaudeControl['mode']): string {
   }
 }
 
+function claudeRuntimeLabel(runtime: ClaudeRuntime | undefined): string {
+  if (!runtime) return 'fenêtre inconnue'
+  if (runtime.status === 'paused') return 'pause active'
+  if (runtime.status === 'cooling') return `prochaine fenêtre dans ${formatDuration(runtime.cooldownRemainingSeconds * 1000)}`
+  return 'prêt maintenant'
+}
+
+function claudeRuntimeDetail(runtime: ClaudeRuntime | undefined): string {
+  if (!runtime?.nextAllowedAt) return 'dernier lancement non observé'
+  const next = new Date(runtime.nextAllowedAt).toLocaleTimeString('en', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  return runtime.status === 'cooling' ? `autorisé à ${next}` : `fenêtre ouverte depuis ${next}`
+}
+
 function renderClaudeControls(): string {
   if (!claudeControl) {
     return '<p class="claude-pressure__note">Contrôle Claude Code indisponible.</p>'
   }
 
   const c = claudeControl
+  const runtime = c.runtime
   const modes: ClaudeControl['mode'][] = ['normal', 'economy', 'strict']
   return `
     <div class="claude-control" aria-label="Contrôle Claude Code">
@@ -723,6 +747,10 @@ function renderClaudeControls(): string {
         <span>max-turns ≤ ${c.maxTurnsCap}</span>
         <span>pause min. ${formatDuration(c.minStartIntervalSeconds * 1000)}</span>
         <span>${c.paused ? 'lancements suspendus' : 'lancements autorisés'}</span>
+      </div>
+      <div class="claude-control__runtime" data-runtime-status="${runtime?.status ?? 'unknown'}">
+        <strong>${claudeRuntimeLabel(runtime)}</strong>
+        <span>${claudeRuntimeDetail(runtime)}</span>
       </div>
       <div class="claude-control__actions">
         ${modes.map(m => `
@@ -749,7 +777,12 @@ function renderClaudePressure(): void {
 
   const t = claudeTelemetry
   const events = t.recentEvents.slice(0, 4)
-  const statusText = claudeControl?.paused ? 'Lancements en pause' : `Pression ${pressureLabel(t.pressure)}`
+  const runtime = claudeControl?.runtime
+  const statusText = claudeControl?.paused
+    ? 'Lancements en pause'
+    : runtime?.status === 'cooling'
+      ? 'Cooldown actif'
+      : `Pression ${pressureLabel(t.pressure)}`
   panel.innerHTML = `
     <div class="claude-pressure__head">
       <div>

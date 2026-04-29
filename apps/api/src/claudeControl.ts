@@ -11,12 +11,22 @@ export interface ClaudeControlState {
   updatedAt: string
 }
 
+export type ClaudeRuntimeStatus = 'ready' | 'cooling' | 'paused'
+
+export interface ClaudeRuntimeState {
+  status: ClaudeRuntimeStatus
+  lastStartAt: string | null
+  nextAllowedAt: string | null
+  cooldownRemainingSeconds: number
+}
+
 export interface ClaudeControlPatch {
   mode?: unknown
   paused?: unknown
 }
 
 const CONTROL_FILE = process.env['AGENTDECK_CLAUDE_CONTROL_FILE'] ?? '/root/.hermes/claude-control.env'
+const STATE_FILE = process.env['AGENTDECK_CLAUDE_STATE_FILE'] ?? '/tmp/hermes-claude-code-last-start'
 
 const MODE_SETTINGS: Record<ClaudeControlMode, { maxTurnsCap: number; minStartIntervalSeconds: number }> = {
   normal:  { maxTurnsCap: 10, minStartIntervalSeconds: 60 },
@@ -123,4 +133,48 @@ export async function updateClaudeControl(
   await writeFile(tmp, formatClaudeControlEnv(next), { encoding: 'utf8', mode: 0o600 })
   await rename(tmp, path)
   return next
+}
+
+function toIsoFromEpochSeconds(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString()
+}
+
+export function summarizeClaudeRuntime(
+  control: ClaudeControlState,
+  lastStartEpochSeconds: number | null,
+  now = new Date(),
+): ClaudeRuntimeState {
+  if (lastStartEpochSeconds === null) {
+    return {
+      status: control.paused ? 'paused' : 'ready',
+      lastStartAt: null,
+      nextAllowedAt: null,
+      cooldownRemainingSeconds: 0,
+    }
+  }
+
+  const nextAllowedEpochSeconds = lastStartEpochSeconds + control.minStartIntervalSeconds
+  const nowEpochSeconds = Math.floor(now.getTime() / 1000)
+  const cooldownRemainingSeconds = Math.max(0, nextAllowedEpochSeconds - nowEpochSeconds)
+  return {
+    status: control.paused ? 'paused' : cooldownRemainingSeconds > 0 ? 'cooling' : 'ready',
+    lastStartAt: toIsoFromEpochSeconds(lastStartEpochSeconds),
+    nextAllowedAt: toIsoFromEpochSeconds(nextAllowedEpochSeconds),
+    cooldownRemainingSeconds,
+  }
+}
+
+export async function readClaudeRuntime(
+  control: ClaudeControlState,
+  path = STATE_FILE,
+  now = new Date(),
+): Promise<ClaudeRuntimeState> {
+  let lastStartEpochSeconds: number | null = null
+  try {
+    const raw = (await readFile(path, 'utf8')).trim()
+    if (/^\d+$/.test(raw)) lastStartEpochSeconds = Number(raw)
+  } catch {
+    lastStartEpochSeconds = null
+  }
+  return summarizeClaudeRuntime(control, lastStartEpochSeconds, now)
 }

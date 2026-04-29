@@ -1012,7 +1012,7 @@ details ul li {
 
 .claude-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(11rem, auto) auto;
   gap: 0.7rem;
   align-items: center;
   margin-bottom: 0.75rem;
@@ -1037,6 +1037,30 @@ details ul li {
   font-family: var(--font-mono);
   font-size: 0.66rem;
 }
+
+.claude-control__runtime {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--border-1);
+}
+
+.claude-control__runtime strong {
+  color: var(--text-1);
+  font-size: 0.74rem;
+  line-height: 1.15;
+}
+
+.claude-control__runtime span {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+}
+
+.claude-control__runtime[data-runtime-status="cooling"] strong { color: var(--amber-light); }
+.claude-control__runtime[data-runtime-status="ready"] strong { color: var(--green-light); }
+.claude-control__runtime[data-runtime-status="paused"] strong { color: var(--text-3); }
 
 .claude-control__actions {
   display: flex;
@@ -1980,6 +2004,12 @@ details ul li {
 
   .agent-grid { grid-template-columns: 1fr; }
   .claude-control { grid-template-columns: 1fr; }
+  .claude-control__runtime {
+    padding-left: 0;
+    padding-top: 0.55rem;
+    border-left: 0;
+    border-top: 1px solid var(--border-1);
+  }
   .claude-control__actions { justify-content: flex-start; }
   .claude-pressure__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
