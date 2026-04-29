@@ -13,6 +13,285 @@ const CLOCK_RENDER_MS = 15_000
 type LogStreamEntry = { agentId: string; agentName: string; entry: LogEntry }
 type TabId = 'topology' | 'activity' | 'files' | 'control'
 type DashboardView = 'now' | 'system' | 'history'
+type Locale = 'fr' | 'en'
+
+const translations: Record<Locale, Record<string, string>> = {
+  fr: {
+    'topbar.language': 'Langue',
+    'hero.eyebrow': 'Cockpit local d’opérations IA',
+    'hero.title': 'Supervision des agents',
+    'hero.subtitle': 'Surveiller, orienter et coordonner les agents de code IA en temps réel',
+    'hero.active': 'Actifs',
+    'hero.system': 'Système',
+    'hero.signals': 'Signaux',
+    'panel.agents': 'Agents',
+    'nav.now': 'Maintenant',
+    'nav.system': 'Système',
+    'nav.history': 'Historique',
+    'stream.listening': 'écoute',
+    'status.live': '● direct',
+    'status.reconnecting': '● reconnexion…',
+    'status.demo': '○ démo',
+    'status.waiting': 'en attente',
+    'status.error': 'erreur',
+    'status.errors': 'erreurs',
+    'empty.now': 'Aucun travail projet actif pour l’instant. Demande à Hermès de continuer pour alimenter cette vue.',
+    'empty.system': 'Aucun processus système enregistré.',
+    'empty.history': 'Aucun agent inactif ou terminé pour l’instant.',
+    'card.openDetails': 'Ouvrir le détail de',
+    'card.modifiedFile': 'fichier modifié',
+    'card.modifiedFiles': 'fichiers modifiés',
+    'card.liveTrail': 'Fil direct',
+    'metric.tokens': 'Tokens',
+    'metric.tools': 'Outils',
+    'metric.files': 'Fichiers',
+    'control.inputPlaceholder': 'Envoyer une instruction à l’agent…',
+    'control.enter': 'Entrée',
+    'control.send': 'Envoyer',
+    'control.stop': 'Stop',
+    'pressure.unknown': 'Pression inconnue',
+    'pressure.offline': 'hors ligne',
+    'pressure.telemetryMissing': 'La télémétrie locale du throttle n’est pas encore disponible.',
+    'pressure.paused': 'Lancements en pause',
+    'pressure.cooldown': 'Cooldown actif',
+    'pressure.prefix': 'Pression',
+    'pressure.launches': 'Lancements 1h',
+    'pressure.waits': 'Attentes',
+    'pressure.caps': 'Caps appliqués',
+    'pressure.cooldownMetric': 'Cooldown',
+    'pressure.none': 'Aucun lancement récent observé.',
+    'pressure.updated': 'Mis à jour',
+    'pressure.source': 'source locale sanitisée',
+    'claude.controlUnavailable': 'Contrôle Claude Code indisponible.',
+    'claude.mode': 'Mode',
+    'claude.pauseMin': 'pause min.',
+    'claude.launchesSuspended': 'lancements suspendus',
+    'claude.launchesAllowed': 'lancements autorisés',
+    'claude.resume': 'Reprendre',
+    'claude.pauseAi': 'Pause IA',
+    'claude.auditLabel': 'Derniers changements Claude Code',
+    'claude.rateLimitNote': '429 = limite fournisseur atteinte. AgentDeck ne relance pas : on attend la fenêtre suivante, avec mode Économie/Strict si besoin.',
+    'runtime.unknown': 'fenêtre inconnue',
+    'runtime.paused': 'pause active',
+    'runtime.nextWindow': 'prochaine fenêtre dans',
+    'runtime.ready': 'prêt maintenant',
+    'runtime.noLastStart': 'dernier lancement non observé',
+    'runtime.allowedAt': 'autorisé à',
+    'runtime.openSince': 'fenêtre ouverte depuis',
+    'pressure.calm': 'calme',
+    'pressure.elevated': 'élevée',
+    'pressure.high': 'haute',
+    'activity.now': 'Activité maintenant',
+    'activity.waiting': 'En attente d’un signal frais — demande à Hermès de continuer et l’activité apparaîtra ici.',
+    'activity.recentSignal': 'signal récent',
+    'activity.recentSignals': 'signaux récents',
+    'activity.openHint': 'ouvrir un agent pour le flux complet',
+    'event.waiting': 'En attente du premier signal…',
+    'topology.title': 'Topologie de l’agent',
+    'topology.node': 'nœud',
+    'topology.nodes': 'nœuds',
+    'topology.link': 'lien',
+    'topology.links': 'liens',
+    'topology.refreshed': 'rafraîchi',
+    'topology.waiting': 'En attente d’activité Hermès…',
+    'topology.observed': 'observé',
+    'topology.inferred': 'inféré',
+    'topology.graphLabel': 'Graphe de topologie agent',
+    'topology.placeholder': 'La topologie apparaîtra dès qu’Hermès émettra une activité outil.',
+    'topology.agent': 'Agent',
+    'topology.workstreams': 'Flux de travail',
+    'topology.observedTier': 'Outils · Fichiers · Événements',
+    'topology.noWorkstreams': 'Aucun flux inféré pour l’instant.',
+    'topology.noObserved': 'Aucune activité observée pour l’instant.',
+    'topology.live': 'ACTIF',
+    'topology.idle': 'INACTIF',
+    'topology.awaitingActivity': 'En attente d’activité',
+    'topology.signals': 'signaux',
+    'topology.signal': 'signal',
+    'topology.standingBy': 'En veille',
+    'topology.idleActivity': 'Inactif',
+    'topology.touched': 'Touché',
+    'topology.awaiting': 'En attente',
+    'activity.title': 'Flux d’événements',
+    'activity.scope': 'Périmètre',
+    'activity.thisAgent': 'Cet agent',
+    'activity.allAgents': 'Tous les agents',
+    'activity.noEvents': 'Aucun événement capturé pour l’instant.',
+    'files.title': 'Fichiers modifiés',
+    'files.touched': 'touché(s) dans cette session.',
+    'files.none': 'Aucun fichier modifié pour l’instant.',
+    'control.title': 'Contrôle',
+    'control.help': 'Envoyer des instructions ou terminer la session tmux.',
+    'control.sendEnter': 'Envoyer Entrée',
+    'control.stopSession': 'Arrêter la session',
+    'control.inactive': 'Cette session n’est plus active.',
+    'tabs.label': 'Sections de l’inspecteur agent',
+    'inspector.eyebrow': 'Inspecteur agent',
+    'inspector.live': 'ACTIF',
+    'inspector.lastUpdate': 'mise à jour',
+    'inspector.close': 'Fermer le détail agent',
+    'inspector.duration': 'Durée',
+    'inspector.updated': 'Actualisé',
+    'inspector.toolCalls': 'Appels outils',
+    'inspector.mode': 'Mode',
+    'time.justNow': 'à l’instant',
+    'time.secondsAgo': 'il y a {n}s',
+    'time.minutesAgo': 'il y a {n}min',
+    'time.hoursAgo': 'il y a {n}h',
+    'tab.topology': 'Topologie',
+    'tab.activity': 'Flux',
+    'tab.files': 'Fichiers',
+    'tab.control': 'Contrôle',
+  },
+  en: {
+    'topbar.language': 'Language',
+    'hero.eyebrow': 'Local AI operations deck',
+    'hero.title': 'Agent supervision',
+    'hero.subtitle': 'Monitor, direct, and coordinate your AI coding agents in real time',
+    'hero.active': 'Active',
+    'hero.system': 'System',
+    'hero.signals': 'Signals',
+    'panel.agents': 'Agents',
+    'nav.now': 'Now',
+    'nav.system': 'System',
+    'nav.history': 'History',
+    'stream.listening': 'listening',
+    'status.live': '● live',
+    'status.reconnecting': '● reconnecting…',
+    'status.demo': '○ demo',
+    'status.waiting': 'waiting',
+    'status.error': 'error',
+    'status.errors': 'errors',
+    'empty.now': 'No active project work right now. Ask Hermes to continue development to populate this view.',
+    'empty.system': 'No system processes registered.',
+    'empty.history': 'No idle or completed agents yet.',
+    'card.openDetails': 'Open details for',
+    'card.modifiedFile': 'modified file',
+    'card.modifiedFiles': 'modified files',
+    'card.liveTrail': 'Live trail',
+    'metric.tokens': 'Tokens',
+    'metric.tools': 'Tools',
+    'metric.files': 'Files',
+    'control.inputPlaceholder': 'Send input to agent…',
+    'control.enter': 'Enter',
+    'control.send': 'Send',
+    'control.stop': 'Stop',
+    'pressure.unknown': 'Unknown pressure',
+    'pressure.offline': 'offline',
+    'pressure.telemetryMissing': 'Local throttle telemetry is not available yet.',
+    'pressure.paused': 'Launches paused',
+    'pressure.cooldown': 'Cooldown active',
+    'pressure.prefix': 'Pressure',
+    'pressure.launches': 'Launches 1h',
+    'pressure.waits': 'Waits',
+    'pressure.caps': 'Caps applied',
+    'pressure.cooldownMetric': 'Cooldown',
+    'pressure.none': 'No recent launch observed.',
+    'pressure.updated': 'Updated',
+    'pressure.source': 'sanitized local source',
+    'claude.controlUnavailable': 'Claude Code control unavailable.',
+    'claude.mode': 'Mode',
+    'claude.pauseMin': 'min. pause',
+    'claude.launchesSuspended': 'launches suspended',
+    'claude.launchesAllowed': 'launches allowed',
+    'claude.resume': 'Resume',
+    'claude.pauseAi': 'Pause AI',
+    'claude.auditLabel': 'Latest Claude Code changes',
+    'claude.rateLimitNote': '429 = provider usage limit reached. AgentDeck does not retry: wait for the next window, with Economy/Strict mode if needed.',
+    'runtime.unknown': 'unknown window',
+    'runtime.paused': 'pause active',
+    'runtime.nextWindow': 'next window in',
+    'runtime.ready': 'ready now',
+    'runtime.noLastStart': 'last launch not observed',
+    'runtime.allowedAt': 'allowed at',
+    'runtime.openSince': 'window open since',
+    'pressure.calm': 'calm',
+    'pressure.elevated': 'elevated',
+    'pressure.high': 'high',
+    'activity.now': 'Activity Now',
+    'activity.waiting': 'Waiting for a fresh signal — ask Hermes to continue and live activity will appear here.',
+    'activity.recentSignal': 'recent signal',
+    'activity.recentSignals': 'recent signals',
+    'activity.openHint': 'open an agent for the full event stream',
+    'event.waiting': 'Waiting for the first signal…',
+    'topology.title': 'Agent topology',
+    'topology.node': 'node',
+    'topology.nodes': 'nodes',
+    'topology.link': 'link',
+    'topology.links': 'links',
+    'topology.refreshed': 'refreshed',
+    'topology.waiting': 'Waiting for activity from Hermes…',
+    'topology.observed': 'observed',
+    'topology.inferred': 'inferred',
+    'topology.graphLabel': 'Agent topology graph',
+    'topology.placeholder': 'Topology will appear once Hermes emits tool activity.',
+    'topology.agent': 'Agent',
+    'topology.workstreams': 'Workstreams',
+    'topology.observedTier': 'Tools · Files · Events',
+    'topology.noWorkstreams': 'No inferred workstreams yet.',
+    'topology.noObserved': 'No observed activity yet.',
+    'topology.live': 'LIVE',
+    'topology.idle': 'IDLE',
+    'topology.awaitingActivity': 'Awaiting activity',
+    'topology.signals': 'signals',
+    'topology.signal': 'signal',
+    'topology.standingBy': 'Standing by',
+    'topology.idleActivity': 'Idle',
+    'topology.touched': 'Touched',
+    'topology.awaiting': 'Awaiting',
+    'activity.title': 'Event stream',
+    'activity.scope': 'Scope',
+    'activity.thisAgent': 'This agent',
+    'activity.allAgents': 'All agents',
+    'activity.noEvents': 'No events captured yet.',
+    'files.title': 'Modified files',
+    'files.touched': 'touched in this session.',
+    'files.none': 'No files modified yet.',
+    'control.title': 'Control',
+    'control.help': 'Send instructions or terminate the tmux session.',
+    'control.sendEnter': 'Send Enter',
+    'control.stopSession': 'Stop session',
+    'control.inactive': 'This session is no longer active.',
+    'tabs.label': 'Agent inspector sections',
+    'inspector.eyebrow': 'Agent inspector',
+    'inspector.live': 'LIVE',
+    'inspector.lastUpdate': 'last update',
+    'inspector.close': 'Close agent detail',
+    'inspector.duration': 'Duration',
+    'inspector.updated': 'Updated',
+    'inspector.toolCalls': 'Tool calls',
+    'inspector.mode': 'Mode',
+    'time.justNow': 'just now',
+    'time.secondsAgo': '{n}s ago',
+    'time.minutesAgo': '{n}m ago',
+    'time.hoursAgo': '{n}h ago',
+    'tab.topology': 'Topology',
+    'tab.activity': 'Event Stream',
+    'tab.files': 'Files',
+    'tab.control': 'Control',
+  },
+}
+
+let locale: Locale = loadLocale()
+
+function loadLocale(): Locale {
+  return localStorage.getItem('agentdeck-locale') === 'en' ? 'en' : 'fr'
+}
+
+function setLocale(next: Locale): void {
+  locale = next
+  localStorage.setItem('agentdeck-locale', next)
+  document.documentElement.lang = next
+  render()
+}
+
+function tr(key: string): string {
+  return translations[locale][key] ?? translations.en[key] ?? key
+}
+
+function trn(key: string, n: number): string {
+  return tr(key).replace('{n}', String(n))
+}
 
 let agents: Agent[] = []
 let liveLogs: LogStreamEntry[] = []
@@ -410,10 +689,10 @@ function formatDuration(ms: number): string {
 
 function timeAgo(date: Date): string {
   const diff = Date.now() - date.getTime()
-  if (diff < 10_000) return 'just now'
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 10_000) return tr('time.justNow')
+  if (diff < 60_000) return trn('time.secondsAgo', Math.floor(diff / 1000))
+  if (diff < 3_600_000) return trn('time.minutesAgo', Math.floor(diff / 60_000))
+  return trn('time.hoursAgo', Math.floor(diff / 3_600_000))
 }
 
 function fmtTokens(n: number): string {
@@ -588,6 +867,33 @@ function renderBuildInfo(): void {
   version.title = buildInfo.commit ? `AgentDeck ${buildInfo.version} (${buildInfo.commit})` : `AgentDeck ${buildInfo.version}`
 }
 
+function renderStaticLabels(): void {
+  document.documentElement.lang = locale
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => {
+    const key = el.dataset['i18n']
+    if (key) el.textContent = tr(key)
+  })
+
+  const textTargets: Array<[string, string]> = [
+    ['#language-switch-label', 'topbar.language'],
+    ['#hero-eyebrow', 'hero.eyebrow'],
+    ['#hero-title', 'hero.title'],
+    ['#hero-subtitle', 'hero.subtitle'],
+    ['#hero-active-label', 'hero.active'],
+    ['#hero-system-label', 'hero.system'],
+    ['#hero-signals-label', 'hero.signals'],
+    ['#agents-panel-title', 'panel.agents'],
+    ['#stream-indicator-label', 'stream.listening'],
+  ]
+  for (const [selector, key] of textTargets) {
+    const el = document.querySelector<HTMLElement>(selector)
+    if (el) el.textContent = tr(key)
+  }
+
+  const switcher = document.querySelector<HTMLSelectElement>('#language-switch')
+  if (switcher) switcher.value = locale
+}
+
 function render(): void {
   const grid      = document.querySelector<HTMLDivElement>('#agent-grid')
   const count     = document.querySelector<HTMLSpanElement>('#agent-count')
@@ -595,6 +901,7 @@ function render(): void {
   if (!grid || !count || !statusBar) return
 
   renderBuildInfo()
+  renderStaticLabels()
   const waiting = agents.filter(a => a.status === 'waiting').length
   const errors  = agents.filter(a => a.status === 'error').length
 
@@ -612,14 +919,14 @@ function render(): void {
   if (heroSignals) heroSignals.textContent = String(recentSignals)
 
   const connBadge =
-    mode === 'live'         ? '<span class="conn-badge conn-badge--live">● live</span>' :
-    mode === 'reconnecting' ? '<span class="conn-badge conn-badge--offline">● reconnecting…</span>' :
-                              '<span class="conn-badge conn-badge--demo">○ demo</span>'
+    mode === 'live'         ? `<span class="conn-badge conn-badge--live">${tr('status.live')}</span>` :
+    mode === 'reconnecting' ? `<span class="conn-badge conn-badge--offline">${tr('status.reconnecting')}</span>` :
+                              `<span class="conn-badge conn-badge--demo">${tr('status.demo')}</span>`
 
   statusBar.innerHTML =
     connBadge +
-    (waiting ? `<span class="status-count"><strong>${waiting}</strong> waiting</span>` : '') +
-    (errors  ? `<span class="status-count status-count--error"><strong>${errors}</strong> error${errors > 1 ? 's' : ''}</span>` : '')
+    (waiting ? `<span class="status-count"><strong>${waiting}</strong> ${tr('status.waiting')}</span>` : '') +
+    (errors  ? `<span class="status-count status-count--error"><strong>${errors}</strong> ${tr(errors > 1 ? 'status.errors' : 'status.error')}</span>` : '')
 
   // Dashboard nav state and counts
   const navCounts: Record<DashboardView, number> = {
@@ -657,9 +964,9 @@ function render(): void {
 
 function emptyDashboardMessage(view: DashboardView): string {
   switch (view) {
-    case 'now':     return 'No active project work right now. Ask Hermes to continue development to populate this view.'
-    case 'system':  return 'No system processes registered.'
-    case 'history': return 'No idle or completed agents yet.'
+    case 'now':     return tr('empty.now')
+    case 'system':  return tr('empty.system')
+    case 'history': return tr('empty.history')
   }
 }
 
@@ -676,7 +983,7 @@ function renderAgentCard(agent: Agent): string {
 
   const filesSection = agent.metrics.filesModified.length > 0
     ? `<details>
-        <summary>${agent.metrics.filesModified.length} modified file${agent.metrics.filesModified.length !== 1 ? 's' : ''}</summary>
+        <summary>${agent.metrics.filesModified.length} ${tr(agent.metrics.filesModified.length === 1 ? 'card.modifiedFile' : 'card.modifiedFiles')}</summary>
         <ul>${agent.metrics.filesModified.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
       </details>`
     : ''
@@ -684,7 +991,7 @@ function renderAgentCard(agent: Agent): string {
   const recentSignals = recentAgentSignals(agent)
   const latestSection = recentSignals.length > 0
     ? `<div class="agent-card__latest">
-        <span>Live trail</span>
+        <span>${tr('card.liveTrail')}</span>
         <ol class="agent-card__trail">
           ${recentSignals.map(entry => `
             <li class="agent-card__trail-line agent-card__trail-line--${entry.level}">
@@ -698,7 +1005,7 @@ function renderAgentCard(agent: Agent): string {
   const activeSignalClass = hasFreshDevelopmentSignal(agent) ? ' agent-card--activity-signal' : ''
 
   return `
-    <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}${activeSignalClass}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="Open details for ${esc(agent.name)}">
+    <article class="agent-card agent-card--${agent.status}${selectedAgentId === agent.id ? ' agent-card--selected' : ''}${activeSignalClass}" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}" role="button" tabindex="0" aria-label="${tr('card.openDetails')} ${esc(agent.name)}">
       <div class="agent-card__header">
         <h3>${esc(agent.name)}</h3>
         <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
@@ -706,9 +1013,9 @@ function renderAgentCard(agent: Agent): string {
       <div class="agent-card__id">${esc(agent.id)}</div>
       <p class="agent-card__task">${esc(agent.task)}</p>
       <dl class="metrics">
-        <div><dt>Tokens</dt><dd>${fmtTokens(agent.metrics.tokensUsed)}</dd></div>
-        <div><dt>Tools</dt><dd>${agent.metrics.toolCallsCount}</dd></div>
-        <div><dt>Files</dt><dd>${agent.metrics.filesModified.length}</dd></div>
+        <div><dt>${tr('metric.tokens')}</dt><dd>${fmtTokens(agent.metrics.tokensUsed)}</dd></div>
+        <div><dt>${tr('metric.tools')}</dt><dd>${agent.metrics.toolCallsCount}</dd></div>
+        <div><dt>${tr('metric.files')}</dt><dd>${agent.metrics.filesModified.length}</dd></div>
       </dl>
       ${latestSection}
       <div class="agent-card__footer">
@@ -725,11 +1032,11 @@ function renderAgentControls(agent: Agent): string {
   const dis = isInactive(agent.status) ? ' disabled' : ''
   return `
     <div class="agent-controls">
-      <textarea class="agent-controls__input" rows="2" placeholder="Send input to agent…"${dis}></textarea>
+      <textarea class="agent-controls__input" rows="2" placeholder="${tr('control.inputPlaceholder')}"${dis}></textarea>
       <div class="agent-controls__row">
-        <label><input type="checkbox" class="agent-controls__enter" checked> Enter</label>
-        <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>Send</button>
-        <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>Stop</button>
+        <label><input type="checkbox" class="agent-controls__enter" checked> ${tr('control.enter')}</label>
+        <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>${tr('control.send')}</button>
+        <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>${tr('control.stop')}</button>
       </div>
     </div>
   `
@@ -739,9 +1046,9 @@ function renderAgentControls(agent: Agent): string {
 
 function pressureLabel(pressure: ClaudeTelemetry['pressure']): string {
   switch (pressure) {
-    case 'calm':     return 'calme'
-    case 'elevated': return 'élevée'
-    case 'high':     return 'haute'
+    case 'calm':     return tr('pressure.calm')
+    case 'elevated': return tr('pressure.elevated')
+    case 'high':     return tr('pressure.high')
   }
 }
 
@@ -766,18 +1073,18 @@ function claudeModeLabel(modeName: ClaudeControl['mode']): string {
 }
 
 function claudeRuntimeLabel(runtime: ClaudeRuntime | undefined): string {
-  if (!runtime) return 'fenêtre inconnue'
-  if (runtime.status === 'paused') return 'pause active'
-  if (runtime.status === 'cooling') return `prochaine fenêtre dans ${formatDuration(runtime.cooldownRemainingSeconds * 1000)}`
-  return 'prêt maintenant'
+  if (!runtime) return tr('runtime.unknown')
+  if (runtime.status === 'paused') return tr('runtime.paused')
+  if (runtime.status === 'cooling') return `${tr('runtime.nextWindow')} ${formatDuration(runtime.cooldownRemainingSeconds * 1000)}`
+  return tr('runtime.ready')
 }
 
 function claudeRuntimeDetail(runtime: ClaudeRuntime | undefined): string {
-  if (!runtime?.nextAllowedAt) return 'dernier lancement non observé'
+  if (!runtime?.nextAllowedAt) return tr('runtime.noLastStart')
   const next = new Date(runtime.nextAllowedAt).toLocaleTimeString('en', {
     hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
-  return runtime.status === 'cooling' ? `autorisé à ${next}` : `fenêtre ouverte depuis ${next}`
+  return runtime.status === 'cooling' ? `${tr('runtime.allowedAt')} ${next}` : `${tr('runtime.openSince')} ${next}`
 }
 
 function claudeAuditChangeLabel(entry: ClaudeControlAuditEntry): string {
@@ -790,7 +1097,7 @@ function renderClaudeControlAudit(audit: ClaudeControlAuditEntry[] | undefined):
   const entries = (audit ?? []).slice(-3).reverse()
   if (entries.length === 0) return ''
   return `
-    <ol class="claude-control__audit" aria-label="Derniers changements Claude Code">
+    <ol class="claude-control__audit" aria-label="${tr('claude.auditLabel')}">
       ${entries.map(entry => {
         const time = new Date(entry.timestamp).toLocaleTimeString('en', {
           hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -803,7 +1110,7 @@ function renderClaudeControlAudit(audit: ClaudeControlAuditEntry[] | undefined):
 
 function renderClaudeControls(): string {
   if (!claudeControl) {
-    return '<p class="claude-pressure__note">Contrôle Claude Code indisponible.</p>'
+    return `<p class="claude-pressure__note">${tr('claude.controlUnavailable')}</p>`
   }
 
   const c = claudeControl
@@ -812,10 +1119,10 @@ function renderClaudeControls(): string {
   return `
     <div class="claude-control" aria-label="Contrôle Claude Code">
       <div class="claude-control__summary">
-        <span>Mode ${claudeModeLabel(c.mode)}</span>
+        <span>${tr('claude.mode')} ${claudeModeLabel(c.mode)}</span>
         <span>max-turns ≤ ${c.maxTurnsCap}</span>
-        <span>pause min. ${formatDuration(c.minStartIntervalSeconds * 1000)}</span>
-        <span>${c.paused ? 'lancements suspendus' : 'lancements autorisés'}</span>
+        <span>${tr('claude.pauseMin')} ${formatDuration(c.minStartIntervalSeconds * 1000)}</span>
+        <span>${c.paused ? tr('claude.launchesSuspended') : tr('claude.launchesAllowed')}</span>
       </div>
       <div class="claude-control__runtime" data-runtime-status="${runtime?.status ?? 'unknown'}">
         <strong>${claudeRuntimeLabel(runtime)}</strong>
@@ -824,7 +1131,7 @@ function renderClaudeControls(): string {
       <div class="claude-control__actions">
         ${modes.map(m => `
           <button type="button" class="claude-control__btn${m === c.mode ? ' claude-control__btn--active' : ''}" data-claude-mode="${m}" ${m === c.mode ? 'aria-pressed="true"' : 'aria-pressed="false"'}>${claudeModeLabel(m)}</button>`).join('')}
-        <button type="button" class="claude-control__btn claude-control__btn--pause${c.paused ? ' claude-control__btn--active' : ''}" data-claude-paused="${c.paused ? '0' : '1'}">${c.paused ? 'Reprendre' : 'Pause IA'}</button>
+        <button type="button" class="claude-control__btn claude-control__btn--pause${c.paused ? ' claude-control__btn--active' : ''}" data-claude-paused="${c.paused ? '0' : '1'}">${c.paused ? tr('claude.resume') : tr('claude.pauseAi')}</button>
       </div>
       ${renderClaudeControlAudit(c.audit)}
     </div>`
@@ -837,11 +1144,12 @@ function renderClaudePressure(): void {
   if (!claudeTelemetry) {
     panel.innerHTML = `
       <div class="claude-pressure__head">
-        <div><span class="claude-pressure__eyebrow">Claude Code</span><strong>Pression inconnue</strong></div>
-        <span class="pressure-pill pressure-pill--unknown">hors ligne</span>
+        <div><span class="claude-pressure__eyebrow">Claude Code</span><strong>${tr('pressure.unknown')}</strong></div>
+        <span class="pressure-pill pressure-pill--unknown">${tr('pressure.offline')}</span>
       </div>
       ${renderClaudeControls()}
-      <p class="claude-pressure__note">La télémétrie locale du throttle n’est pas encore disponible.</p>`
+      <p class="claude-pressure__note">${tr('pressure.telemetryMissing')}</p>
+      <p class="claude-pressure__note">${tr('claude.rateLimitNote')}</p>`
     return
   }
 
@@ -849,27 +1157,28 @@ function renderClaudePressure(): void {
   const events = t.recentEvents.slice(0, 4)
   const runtime = claudeControl?.runtime
   const statusText = claudeControl?.paused
-    ? 'Lancements en pause'
+    ? tr('pressure.paused')
     : runtime?.status === 'cooling'
-      ? 'Cooldown actif'
-      : `Pression ${pressureLabel(t.pressure)}`
+      ? tr('pressure.cooldown')
+      : `${tr('pressure.prefix')} ${pressureLabel(t.pressure)}`
   panel.innerHTML = `
     <div class="claude-pressure__head">
       <div>
         <span class="claude-pressure__eyebrow">Claude Code</span>
         <strong>${statusText}</strong>
       </div>
-      <span class="pressure-pill pressure-pill--${claudeControl?.paused ? 'unknown' : t.pressure}">${claudeControl?.paused ? 'paused' : t.pressure}</span>
+      <span class="pressure-pill pressure-pill--${claudeControl?.paused ? 'unknown' : t.pressure}">${claudeControl?.paused ? tr('runtime.paused') : pressureLabel(t.pressure)}</span>
     </div>
     ${renderClaudeControls()}
     <dl class="claude-pressure__metrics">
-      <div><dt>Lancements 1h</dt><dd>${t.launches1h}</dd></div>
-      <div><dt>Attentes</dt><dd>${t.waits1h}</dd></div>
-      <div><dt>Caps appliqués</dt><dd>${t.capped1h}</dd></div>
-      <div><dt>Cooldown</dt><dd>${formatDuration(t.totalWaitSeconds1h * 1000)}</dd></div>
+      <div><dt>${tr('pressure.launches')}</dt><dd>${t.launches1h}</dd></div>
+      <div><dt>${tr('pressure.waits')}</dt><dd>${t.waits1h}</dd></div>
+      <div><dt>${tr('pressure.caps')}</dt><dd>${t.capped1h}</dd></div>
+      <div><dt>${tr('pressure.cooldownMetric')}</dt><dd>${formatDuration(t.totalWaitSeconds1h * 1000)}</dd></div>
     </dl>
-    ${events.length ? `<ol class="claude-pressure__events">${events.map(renderClaudeEvent).join('')}</ol>` : '<p class="claude-pressure__note">Aucun lancement récent observé.</p>'}
-    <p class="claude-pressure__note">Mis à jour ${timeAgo(new Date(t.updatedAt))} · source locale sanitisée</p>`
+    ${events.length ? `<ol class="claude-pressure__events">${events.map(renderClaudeEvent).join('')}</ol>` : `<p class="claude-pressure__note">${tr('pressure.none')}</p>`}
+    <p class="claude-pressure__note">${tr('claude.rateLimitNote')}</p>
+    <p class="claude-pressure__note">${tr('pressure.updated')} ${timeAgo(new Date(t.updatedAt))} · ${tr('pressure.source')}</p>`
 }
 
 // ── Activity Now (primary live signals strip) ────────────────────────────────
@@ -883,8 +1192,8 @@ function renderActivityNow(): void {
   if (recent.length === 0) {
     feed.innerHTML = `
       <div class="activity-now__head">
-        <span class="activity-now__label">Activity Now</span>
-        <span class="activity-now__hint">Waiting for a fresh signal — ask Hermes to continue and live activity will appear here.</span>
+        <span class="activity-now__label">${tr('activity.now')}</span>
+        <span class="activity-now__hint">${tr('activity.waiting')}</span>
       </div>`
     return
   }
@@ -893,9 +1202,9 @@ function renderActivityNow(): void {
     <div class="activity-now__head">
       <span class="activity-now__label">
         <span class="activity-now__dot" aria-hidden="true"></span>
-        Activity Now
+        ${tr('activity.now')}
       </span>
-      <span class="activity-now__hint">${recent.length} recent signal${recent.length === 1 ? '' : 's'} · open an agent for the full event stream</span>
+      <span class="activity-now__hint">${recent.length} ${tr(recent.length === 1 ? 'activity.recentSignal' : 'activity.recentSignals')} · ${tr('activity.openHint')}</span>
     </div>
     <ul class="activity-now__list" role="log" aria-live="polite">
       ${recent.map(renderActivityNowLine).join('')}
@@ -926,7 +1235,7 @@ function renderEventTicker(): void {
   const recent = stream.slice(-6).reverse()
 
   if (recent.length === 0) {
-    feed.innerHTML = '<span class="event-ticker__empty">Waiting for the first signal…</span>'
+    feed.innerHTML = `<span class="event-ticker__empty">${tr('event.waiting')}</span>`
     return
   }
 
@@ -980,12 +1289,12 @@ function renderAgentDetail(): void {
 function renderInspectorHeader(agent: Agent): string {
   const pulseDot = agent.status === 'running' ? '<span class="agent-pulse" aria-hidden="true"></span>' : ''
   const liveTag = agent.status === 'running'
-    ? '<span class="inspector__live"><span class="inspector__live-dot" aria-hidden="true"></span>LIVE</span>'
+    ? `<span class="inspector__live"><span class="inspector__live-dot" aria-hidden="true"></span>${tr('inspector.live')}</span>`
     : ''
   return `
     <header class="inspector__header">
       <div class="inspector__title-block">
-        <span class="inspector__eyebrow">Agent inspector</span>
+        <span class="inspector__eyebrow">${tr('inspector.eyebrow')}</span>
         <div class="inspector__title-row">
           <h2 id="agent-detail-title">${esc(agent.name)}</h2>
           ${liveTag}
@@ -993,23 +1302,23 @@ function renderInspectorHeader(agent: Agent): string {
         <div class="inspector__meta">
           <span class="status status--${agent.status}">${pulseDot}${agent.status}</span>
           <code title="${esc(agent.id)}">${esc(agent.id)}</code>
-          <span class="inspector__meta-time">last update ${timeAgo(agent.updatedAt)}</span>
+          <span class="inspector__meta-time">${tr('inspector.lastUpdate')} ${timeAgo(agent.updatedAt)}</span>
         </div>
         <p class="inspector__mission">${esc(agent.task)}</p>
       </div>
-      <button class="inspector__close agent-detail__close" type="button" aria-label="Close agent detail">×</button>
+      <button class="inspector__close agent-detail__close" type="button" aria-label="${tr('inspector.close')}">×</button>
     </header>`
 }
 
 function renderInspectorMetrics(agent: Agent): string {
   const durationMs = agent.startedAt ? Date.now() - agent.startedAt.getTime() : agent.metrics.durationMs
   const tiles: Array<[string, string, boolean]> = [
-    ['Duration', durationMs > 0 ? formatDuration(durationMs) : '—', agent.status === 'running'],
-    ['Updated', timeAgo(agent.updatedAt), false],
-    ['Tokens', fmtTokens(agent.metrics.tokensUsed), false],
-    ['Tool calls', String(agent.metrics.toolCallsCount), false],
-    ['Files', String(agent.metrics.filesModified.length), false],
-    ['Mode', mode, mode === 'live'],
+    [tr('inspector.duration'), durationMs > 0 ? formatDuration(durationMs) : '—', agent.status === 'running'],
+    [tr('inspector.updated'), timeAgo(agent.updatedAt), false],
+    [tr('metric.tokens'), fmtTokens(agent.metrics.tokensUsed), false],
+    [tr('inspector.toolCalls'), String(agent.metrics.toolCallsCount), false],
+    [tr('metric.files'), String(agent.metrics.filesModified.length), false],
+    [tr('inspector.mode'), mode, mode === 'live'],
   ]
   return `
     <section class="inspector__metrics">
@@ -1024,17 +1333,17 @@ function renderInspectorMetrics(agent: Agent): string {
 
 function renderInspectorTabs(tabs: TabId[], active: TabId, agent: Agent): string {
   const labels: Record<TabId, string> = {
-    topology: 'Topology',
-    activity: 'Event Stream',
-    files: 'Files',
-    control: 'Control',
+    topology: tr('tab.topology'),
+    activity: tr('tab.activity'),
+    files: tr('tab.files'),
+    control: tr('tab.control'),
   }
   const counts: Partial<Record<TabId, number>> = {
     activity: agent.logs.length,
     files: agent.metrics.filesModified.length,
   }
   return `
-    <nav class="inspector__tabs" role="tablist" aria-label="Agent inspector sections">
+    <nav class="inspector__tabs" role="tablist" aria-label="${tr('tabs.label')}">
       ${tabs.map(tab => {
         const c = counts[tab]
         return `
@@ -1062,14 +1371,14 @@ function renderTopologyTab(agent: Agent): string {
     <section class="inspector__panel inspector__panel--topology">
       <div class="inspector__panel-head">
         <div>
-          <h3>Agent topology</h3>
+          <h3>${tr('topology.title')}</h3>
           <p>${agent.topology
-              ? `${agent.topology.nodes.length} node${agent.topology.nodes.length === 1 ? '' : 's'} · ${agent.topology.edges.length} link${agent.topology.edges.length === 1 ? '' : 's'} · refreshed ${timeAgo(agent.topology.updatedAt)}`
-              : 'Waiting for activity from Hermes…'}</p>
+              ? `${agent.topology.nodes.length} ${tr(agent.topology.nodes.length === 1 ? 'topology.node' : 'topology.nodes')} · ${agent.topology.edges.length} ${tr(agent.topology.edges.length === 1 ? 'topology.link' : 'topology.links')} · ${tr('topology.refreshed')} ${timeAgo(agent.topology.updatedAt)}`
+              : tr('topology.waiting')}}</p>
         </div>
         <div class="inspector__legend">
-          <span><i class="legend-dot legend-dot--observed"></i> observed</span>
-          <span><i class="legend-dot legend-dot--inferred"></i> inferred</span>
+          <span><i class="legend-dot legend-dot--observed"></i> ${tr('topology.observed')}</span>
+          <span><i class="legend-dot legend-dot--inferred"></i> ${tr('topology.inferred')}</span>
         </div>
       </div>
       ${renderTopologyGraph(agent)}
@@ -1087,20 +1396,20 @@ function renderActivityTab(agent: Agent): string {
     <section class="inspector__panel inspector__panel--activity">
       <div class="inspector__panel-head">
         <div>
-          <h3>Event stream</h3>
+          <h3>${tr('activity.title')}</h3>
           <p>${visible.length} of ${filtered.length} event${filtered.length === 1 ? '' : 's'}${activityScope === 'all' ? ' across all agents' : ` from ${esc(agent.name)}`}</p>
         </div>
         <div class="inspector__panel-controls">
-          <select id="activity-scope" class="panel__select" aria-label="Scope">
-            <option value="this"${activityScope === 'this' ? ' selected' : ''}>This agent</option>
-            <option value="all"${activityScope === 'all' ? ' selected' : ''}>All agents</option>
+          <select id="activity-scope" class="panel__select" aria-label="${tr('activity.scope')}">
+            <option value="this"${activityScope === 'this' ? ' selected' : ''}>${tr('activity.thisAgent')}</option>
+            <option value="all"${activityScope === 'all' ? ' selected' : ''}>${tr('activity.allAgents')}</option>
           </select>
         </div>
       </div>
       <div class="inspector__log-feed" role="log" aria-live="polite">
         ${visible.length
           ? visible.map(l => renderActivityLogLine(l, agent.id)).join('')
-          : '<p class="agent-detail__empty">No events captured yet.</p>'}
+          : `<p class="agent-detail__empty">${tr('activity.noEvents')}</p>`}
       </div>
     </section>`
 }
@@ -1125,13 +1434,13 @@ function renderFilesTab(agent: Agent): string {
     <section class="inspector__panel inspector__panel--files">
       <div class="inspector__panel-head">
         <div>
-          <h3>Modified files</h3>
-          <p>${files.length} file${files.length === 1 ? '' : 's'} touched in this session.</p>
+          <h3>${tr('files.title')}</h3>
+          <p>${files.length} ${tr(files.length === 1 ? 'metric.files' : 'metric.files')} ${tr('files.touched')}</p>
         </div>
       </div>
       ${files.length
         ? `<ul class="inspector__files">${files.map(f => `<li><span class="inspector__file-icon" aria-hidden="true"></span><code>${esc(f)}</code></li>`).join('')}</ul>`
-        : '<p class="agent-detail__empty">No files modified yet.</p>'}
+        : `<p class="agent-detail__empty">${tr('files.none')}</p>`}
     </section>`
 }
 
@@ -1142,18 +1451,18 @@ function renderControlTab(agent: Agent): string {
     <section class="inspector__panel inspector__panel--control">
       <div class="inspector__panel-head">
         <div>
-          <h3>Control</h3>
-          <p>Send instructions or terminate the tmux session.</p>
+          <h3>${tr('control.title')}</h3>
+          <p>${tr('control.help')}</p>
         </div>
       </div>
       <div class="inspector__control" data-agent-id="${esc(agent.id)}" data-agent-name="${esc(agent.name)}">
-        <textarea class="agent-controls__input" rows="6" placeholder="Send input to ${esc(agent.name)}…"${dis}></textarea>
+        <textarea class="agent-controls__input" rows="6" placeholder="${tr('control.inputPlaceholder')}"${dis}></textarea>
         <div class="agent-controls__row">
-          <label><input type="checkbox" class="agent-controls__enter" checked> Send Enter</label>
-          <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>Send</button>
-          <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>Stop session</button>
+          <label><input type="checkbox" class="agent-controls__enter" checked> ${tr('control.sendEnter')}</label>
+          <button class="agent-control-send" data-id="${esc(agent.id)}"${dis}>${tr('control.send')}</button>
+          <button class="agent-control-stop" data-id="${esc(agent.id)}"${dis}>${tr('control.stopSession')}</button>
         </div>
-        ${inactive ? '<p class="agent-detail__empty">This session is no longer active.</p>' : ''}
+        ${inactive ? `<p class="agent-detail__empty">${tr('control.inactive')}</p>` : ''}
       </div>
     </section>`
 }
@@ -1166,15 +1475,15 @@ function deriveNodeActivity(node: TopologyNode, agent: Agent): string {
     const last = agent.logs.length ? agent.logs[agent.logs.length - 1] : undefined
     if (last) return truncate(last.message, 56)
     if (agent.task) return truncate(agent.task, 56)
-    return 'Awaiting activity'
+    return tr('topology.awaitingActivity')
   }
   if (typeof node.count === 'number' && node.count > 0) {
-    return `${node.count} signal${node.count === 1 ? '' : 's'}`
+    return `${node.count} ${tr(node.count === 1 ? 'topology.signal' : 'topology.signals')}`
   }
-  if (node.kind === 'workstream') return 'Standing by'
-  if (node.kind === 'tool')       return 'Idle'
-  if (node.kind === 'file')       return 'Touched'
-  return 'Awaiting'
+  if (node.kind === 'workstream') return tr('topology.standingBy')
+  if (node.kind === 'tool')       return tr('topology.idleActivity')
+  if (node.kind === 'file')       return tr('topology.touched')
+  return tr('topology.awaiting')
 }
 
 function renderTopologyGraph(agent: Agent): string {
@@ -1184,7 +1493,7 @@ function renderTopologyGraph(agent: Agent): string {
       <div class="topology-canvas topology-canvas--empty">
         <div class="topology-canvas__placeholder">
           <span class="agent-pulse" aria-hidden="true"></span>
-          Topology will appear once Hermes emits tool activity.
+          ${tr('topology.placeholder')}
         </div>
       </div>`
   }
@@ -1204,7 +1513,7 @@ function renderTopologyGraph(agent: Agent): string {
     const live = node.status === 'running'
     const observedClass = node.observed ? ' t-node--observed' : ' t-node--inferred'
     const linked = edgesByTarget.has(node.id) ? ' t-node--linked' : ''
-    const liveLabel = live ? 'LIVE' : (node.status === 'idle' || node.status === 'waiting' ? 'IDLE' : node.status.toUpperCase())
+    const liveLabel = live ? tr('topology.live') : (node.status === 'idle' || node.status === 'waiting' ? tr('topology.idle') : node.status.toUpperCase())
     const activity = deriveNodeActivity(node, agent)
     const counter = typeof node.count === 'number'
       ? `<span class="t-node__counter" title="signals"><span class="t-node__counter-dot" aria-hidden="true"></span>${node.count}</span>`
@@ -1221,37 +1530,37 @@ function renderTopologyGraph(agent: Agent): string {
         <strong class="t-node__label" title="${esc(node.label)}">${esc(node.label)}</strong>
         <small class="t-node__activity">${esc(activity)}</small>
         <div class="t-node__foot">
-          <span class="t-node__badge">${node.observed ? 'observed' : 'inferred'}</span>
+          <span class="t-node__badge">${node.observed ? tr('topology.observed') : tr('topology.inferred')}</span>
           ${counter}
         </div>
       </div>`
   }
 
   return `
-    <div class="topology-canvas" aria-label="Agent topology graph">
+    <div class="topology-canvas" aria-label="${tr('topology.graphLabel')}">
       <div class="topology-canvas__board">
         <div class="topology-canvas__beam" aria-hidden="true"></div>
         <div class="topology-canvas__grid">
           <div class="topology-tier topology-tier--root">
-            <span class="topology-tier__label">Agent</span>
+            <span class="topology-tier__label">${tr('topology.agent')}</span>
             <div class="topology-tier__body">
               ${root ? renderNode(root) : ''}
             </div>
           </div>
           <div class="topology-tier topology-tier--workstreams">
-            <span class="topology-tier__label">Workstreams</span>
+            <span class="topology-tier__label">${tr('topology.workstreams')}</span>
             <div class="topology-tier__body">
               ${workstreams.length
                 ? workstreams.map(renderNode).join('')
-                : '<p class="topology-tier__empty">No inferred workstreams yet.</p>'}
+                : `<p class="topology-tier__empty">${tr('topology.noWorkstreams')}</p>`}
             </div>
           </div>
           <div class="topology-tier topology-tier--observed">
-            <span class="topology-tier__label">Tools · Files · Events</span>
+            <span class="topology-tier__label">${tr('topology.observedTier')}</span>
             <div class="topology-tier__body">
               ${observed.length
                 ? observed.map(renderNode).join('')
-                : '<p class="topology-tier__empty">No observed activity yet.</p>'}
+                : `<p class="topology-tier__empty">${tr('topology.noObserved')}</p>`}
             </div>
           </div>
         </div>
@@ -1412,6 +1721,10 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
 
 document.addEventListener('change', (e: Event) => {
   const target = e.target as HTMLElement
+  if (target.id === 'language-switch' && target instanceof HTMLSelectElement) {
+    setLocale(target.value === 'en' ? 'en' : 'fr')
+    return
+  }
   if (target.id === 'activity-scope' && target instanceof HTMLSelectElement) {
     activityScope = target.value === 'all' ? 'all' : 'this'
     renderAgentDetail()

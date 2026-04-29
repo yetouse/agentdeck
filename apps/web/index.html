@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -23,27 +23,36 @@
           <span class="topbar__name">AgentDeck</span>
           <span id="agentdeck-version" class="topbar__version">v0.2.0</span>
         </div>
-        <div id="status-bar" class="topbar__statusbar"></div>
+        <div class="topbar__right">
+          <label class="language-switch" for="language-switch">
+            <span id="language-switch-label">Langue</span>
+            <select id="language-switch" aria-labelledby="language-switch-label">
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <div id="status-bar" class="topbar__statusbar"></div>
+        </div>
       </header>
 
       <div class="command-center">
         <div class="command-center__left">
-          <span class="command-center__eyebrow">Local AI operations deck</span>
-          <h1 class="command-center__title">Agent Supervision</h1>
-          <p class="command-center__subtitle">Monitor, direct, and coordinate your AI coding agents in real time</p>
+          <span id="hero-eyebrow" class="command-center__eyebrow">Cockpit local d’opérations IA</span>
+          <h1 id="hero-title" class="command-center__title">Supervision des agents</h1>
+          <p id="hero-subtitle" class="command-center__subtitle">Surveiller, orienter et coordonner les agents de code IA en temps réel</p>
         </div>
         <div class="command-center__metrics">
           <div class="cc-metric cc-metric--running">
             <span id="hero-active" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">Active</span>
+            <span id="hero-active-label" class="cc-metric__label">Actifs</span>
           </div>
           <div class="cc-metric">
             <span id="hero-system" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">System</span>
+            <span id="hero-system-label" class="cc-metric__label">Système</span>
           </div>
           <div class="cc-metric">
             <span id="hero-signals" class="cc-metric__value">0</span>
-            <span class="cc-metric__label">Signals</span>
+            <span id="hero-signals-label" class="cc-metric__label">Signaux</span>
           </div>
         </div>
       </div>
@@ -52,21 +61,21 @@
         <section class="cockpit__panel" id="panel-agents">
           <div class="panel__header">
             <h2 class="panel__title">
-              Agents
+              <span id="agents-panel-title">Agents</span>
               <span id="agent-count" class="panel__badge">0</span>
             </h2>
             <nav class="dashboard-nav" role="tablist" aria-label="Dashboard view">
               <button id="dashboard-view-now" class="dashboard-nav__btn dashboard-nav__btn--active" type="button" role="tab" aria-selected="true" data-view="now">
-                <span>Now</span><em>0</em>
+                <span data-i18n="nav.now">Maintenant</span><em>0</em>
               </button>
               <button id="dashboard-view-system" class="dashboard-nav__btn" type="button" role="tab" aria-selected="false" data-view="system">
-                <span>System</span><em>0</em>
+                <span data-i18n="nav.system">Système</span><em>0</em>
               </button>
               <button id="dashboard-view-history" class="dashboard-nav__btn" type="button" role="tab" aria-selected="false" data-view="history">
-                <span>History</span><em>0</em>
+                <span data-i18n="nav.history">Historique</span><em>0</em>
               </button>
             </nav>
-            <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span>listening</span>
+            <span class="stream-indicator"><span class="stream-indicator__dot" aria-hidden="true"></span><span id="stream-indicator-label">écoute</span></span>
           </div>
 
           <div id="claude-pressure" class="claude-pressure" aria-live="polite"></div>
