@@ -2056,7 +2056,107 @@ details ul li {
   .agent-detail__content { padding: 1rem; }
   .agent-detail__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agent-detail-log { grid-template-columns: 1fr; gap: 0.05rem; }
+
+  .inspector__panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.72rem;
+  }
+
+  .inspector__legend {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.55rem;
+  }
+
+  .topology-canvas {
+    min-height: auto;
+    overflow: visible;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.026), rgba(255,255,255,0.012)),
+      rgba(0,0,0,0.18);
+  }
+
+  .topology-canvas::before,
+  .topology-canvas__beam {
+    display: none;
+  }
+
+  .topology-canvas__board {
+    min-height: auto;
+    padding: 0.82rem;
+  }
+
+  .topology-canvas__grid {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+    min-height: auto;
+  }
+
+  .topology-tier {
+    gap: 0.5rem;
+  }
+
+  .topology-tier__label {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: inline-flex;
+    width: fit-content;
+    padding: 0.18rem 0.5rem;
+    border: 1px solid var(--border-2);
+    border-radius: 999px;
+    background: rgba(8, 9, 10, 0.86);
+    color: var(--text-3);
+  }
+
+  .topology-tier__body {
+    min-height: auto;
+    gap: 0.62rem;
+    padding-left: 0.78rem;
+    border-left: 1px solid rgba(129, 140, 248, 0.22);
+  }
+
+  .topology-tier + .topology-tier .t-node--linked::before {
+    left: -0.82rem;
+    top: -0.64rem;
+    width: 2px;
+    height: 0.64rem;
+    background: linear-gradient(180deg, rgba(129,140,248,0.18), rgba(129,140,248,0.72));
+  }
+
+  .t-node {
+    padding: 0.82rem;
+    border-color: var(--border-3);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    overflow: visible;
+  }
+
+  .t-node--agent {
+    min-height: auto;
+  }
+
+  .t-node__top,
+  .t-node__foot {
+    align-items: flex-start;
+  }
+
+  .t-node__label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+  }
+
+  .t-node__activity {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
 }
+
 
 @media (max-width: 480px) {
   .command-center__title { font-size: 1.1rem; }
