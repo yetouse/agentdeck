@@ -6,6 +6,7 @@ import { launchClaude } from './launch.js'
 import { sendAgentInput, stopAgent } from './control.js'
 import { readClaudeTelemetry } from './claudeTelemetry.js'
 import { readClaudeControl, readClaudeControlAudit, readClaudeRuntime, updateClaudeControl } from './claudeControl.js'
+import { getBuildInfo } from './buildInfo.js'
 import type { AgentEvent } from './types.js'
 
 const HOST = '127.0.0.1'
@@ -37,6 +38,10 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 function handleHealth(_req: IncomingMessage, res: ServerResponse): void {
   json(res, 200, { status: 'ok', agents: state.size, clients: clients.size })
+}
+
+function handleMeta(_req: IncomingMessage, res: ServerResponse): void {
+  json(res, 200, { build: getBuildInfo() })
 }
 
 function handleAgents(_req: IncomingMessage, res: ServerResponse): void {
@@ -222,6 +227,8 @@ function router(req: IncomingMessage, res: ServerResponse): void {
 
   if (req.method === 'GET' && path === '/health') {
     handleHealth(req, res)
+  } else if (req.method === 'GET' && path === '/api/meta') {
+    handleMeta(req, res)
   } else if (req.method === 'GET' && path === '/api/agents') {
     handleAgents(req, res)
   } else if (req.method === 'GET' && path === '/api/hermes/status') {
@@ -283,6 +290,7 @@ server.listen(PORT, HOST, () => {
   const connector = process.env['AGENTDECK_CONNECTOR']
   console.log(`AgentDeck API  →  http://${HOST}:${PORT}`)
   console.log('  GET  /health                       health check')
+  console.log('  GET  /api/meta                     AgentDeck build metadata')
   console.log('  GET  /api/agents                   list agents (JSON)')
   console.log('  GET  /api/events                   SSE event stream')
   console.log('  GET  /api/claude/telemetry         Claude Code throttle telemetry (JSON)')

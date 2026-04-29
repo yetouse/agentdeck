@@ -1,6 +1,6 @@
 {
   "name": "@agentdeck/api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Lightweight bridge server — REST + SSE event stream for the AgentDeck cockpit",
@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/claudeTelemetry.test.ts && tsx src/claudeControl.test.ts",
+    "test": "tsx src/claudeTelemetry.test.ts && tsx src/claudeControl.test.ts && tsx src/buildInfo.test.ts",
     "start": "node dist/index.js"
   },
   "devDependencies": {

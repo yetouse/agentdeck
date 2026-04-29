@@ -18,6 +18,7 @@ let agents: Agent[] = []
 let liveLogs: LogStreamEntry[] = []
 let claudeTelemetry: ClaudeTelemetry | null = null
 let claudeControl: ClaudeControl | null = null
+let buildInfo: BuildInfo = { name: 'AgentDeck', version: '0.2.0', commit: null, label: 'v0.2.0' }
 let mode: 'live' | 'demo' | 'reconnecting' = 'demo'
 let selectedAgentId: string | null = null
 let selectedTab: TabId = 'topology'
@@ -49,6 +50,13 @@ interface WireAgent {
   logs: WireLogEntry[]
   metrics: { tokensUsed: number; toolCallsCount: number; filesModified: string[]; durationMs: number }
   topology?: WireTopology
+}
+
+interface BuildInfo {
+  name: 'AgentDeck'
+  version: string
+  commit: string | null
+  label: string
 }
 
 interface ClaudeTelemetryEvent {
@@ -134,6 +142,28 @@ function fromWireAgent(w: WireAgent): Agent {
 
 // ── Bridge ───────────────────────────────────────────────────────────────────
 
+function isBuildInfo(value: unknown): value is BuildInfo {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<BuildInfo>
+  return candidate.name === 'AgentDeck'
+    && typeof candidate.version === 'string'
+    && (typeof candidate.commit === 'string' || candidate.commit === null)
+    && typeof candidate.label === 'string'
+}
+
+async function fetchBuildInfo(): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/api/meta`, { signal: AbortSignal.timeout(3000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json() as { build?: unknown }
+    if (!isBuildInfo(data.build)) throw new Error('Invalid build metadata')
+    buildInfo = data.build
+  } catch {
+    buildInfo = { name: 'AgentDeck', version: '0.2.0', commit: null, label: 'v0.2.0' }
+  }
+  renderBuildInfo()
+}
+
 async function fetchClaudeTelemetry(): Promise<void> {
   try {
     const res = await fetch(`${API_BASE}/api/claude/telemetry`, { signal: AbortSignal.timeout(3000) })
@@ -174,7 +204,7 @@ async function connect(): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json() as { agents: WireAgent[] }
     agents = data.agents.map(fromWireAgent)
-    await Promise.all([fetchClaudeTelemetry(), fetchClaudeControl()])
+    await Promise.all([fetchBuildInfo(), fetchClaudeTelemetry(), fetchClaudeControl()])
     liveLogs = []
     mode = 'live'
     render()
@@ -551,12 +581,20 @@ function restoreInputs(saved: Map<string, string>): void {
   })
 }
 
+function renderBuildInfo(): void {
+  const version = document.querySelector<HTMLElement>('#agentdeck-version')
+  if (!version) return
+  version.textContent = buildInfo.label
+  version.title = buildInfo.commit ? `AgentDeck ${buildInfo.version} (${buildInfo.commit})` : `AgentDeck ${buildInfo.version}`
+}
+
 function render(): void {
   const grid      = document.querySelector<HTMLDivElement>('#agent-grid')
   const count     = document.querySelector<HTMLSpanElement>('#agent-count')
   const statusBar = document.querySelector<HTMLDivElement>('#status-bar')
   if (!grid || !count || !statusBar) return
 
+  renderBuildInfo()
   const waiting = agents.filter(a => a.status === 'waiting').length
   const errors  = agents.filter(a => a.status === 'error').length
 
